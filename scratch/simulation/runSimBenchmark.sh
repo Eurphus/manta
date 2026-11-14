@@ -30,6 +30,7 @@
 #   SIM_TE_GTF     optional repeatmasker style GTF used to pick mobile element insertion sequences
 #   SIM_JOBS       cores given to the manta workflow (default 2)
 #   SIM_REUSE      if set to 1, reuse the simulated alignments already in WORK_DIR
+#   SIM_ARGS       extra arguments for simulateSVReads.py, e.g. "--class-weights dup_small=1,dup_large=1"
 #
 
 set -o nounset
@@ -63,7 +64,7 @@ if [ "${SIM_REUSE:-0}" != "1" ] || [ ! -f "${prefix}.bam.bai" ]; then
     teArg=""
     if [ -n "${SIM_TE_GTF:-}" ]; then teArg="--te-gtf ${SIM_TE_GTF}"; fi
     python3 "${scriptDir}/simulateSVReads.py" --ref "${refFasta}" --region "${region}" --out-prefix "${prefix}" \
-        --seed "${seed}" --coverage "${coverage}" ${teArg}
+        --seed "${seed}" --coverage "${coverage}" ${teArg} ${SIM_ARGS:-}
     "${samtools}" faidx "${prefix}.ref.fa"
     "${samtools}" sort -@ "${jobs}" -o "${prefix}.bam" "${prefix}.sam" 2>/dev/null
     "${samtools}" index "${prefix}.bam"
@@ -84,6 +85,6 @@ python3 "${runDir}/runWorkflow.py" -j "${jobs}" >"${runDir}.log" 2>&1 || {
 python3 "${mantaDir}/libexec/convertInversion.py" "${samtools}" "${prefix}.ref.fa" \
     "${runDir}/results/variants/diploidSV.vcf.gz" >"${runDir}/diploidSV.inv.vcf"
 
-python3 "${scriptDir}/evaluateCalls.py" --truth "${prefix}.truth.tsv" --vcf "${runDir}/diploidSV.inv.vcf" \
-    --label "${label}" --json "${runDir}/eval.json" --list-errors >"${runDir}/eval.txt"
+python3 "${scriptDir}/evaluateCalls.py" --truth "${prefix}.truth.tsv" --artifacts "${prefix}.artifacts.tsv" \
+    --vcf "${runDir}/diploidSV.inv.vcf" --label "${label}" --json "${runDir}/eval.json" --list-errors >"${runDir}/eval.txt"
 sed -n '1,/^false negatives:/p' "${runDir}/eval.txt" | sed '$d'

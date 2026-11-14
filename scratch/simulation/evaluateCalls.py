@@ -144,6 +144,8 @@ def main():
     parser.add_argument("--inv-collapse-distance", type=int, default=50,
                         help="INV records with both ends within this distance are treated as one inversion")
     parser.add_argument("--include-filtered", action="store_true", help="also use calls which are not PASS")
+    parser.add_argument("--artifacts", default=None,
+                        help="table of simulated low-fraction artifact variants, used to label false positives")
     parser.add_argument("--json", default=None, help="write summary to this file")
     parser.add_argument("--label", default="")
     parser.add_argument("--list-errors", action="store_true", help="print false negatives and false positives")
@@ -216,6 +218,24 @@ def main():
         d["calls"] += 1
         if c.matched is None: d["fp"] += 1
 
+    # label false positives which are calls of a simulated low-fraction artifact
+    artifacts = []
+    if opt.artifacts:
+        for line in open(opt.artifacts):
+            if line.startswith("#"): continue
+            artifacts.append(Truth(line))
+    artifactFP = 0
+    artifactsCalled = set()
+    for c in calls:
+        c.isArtifact = False
+        if c.matched is not None: continue
+        for (ai, a) in enumerate(artifacts):
+            if a.chrom == c.chrom and (a.pos - opt.max_distance) <= c.pos <= (a.end + opt.max_distance):
+                c.isArtifact = True
+                artifactsCalled.add(ai)
+                break
+        if c.isArtifact: artifactFP += 1
+
     totalTruth = len(truths)
     totalFound = sum(1 for t in truths if t.matched is not None)
     totalCalls = len(calls)
@@ -243,6 +263,9 @@ def main():
     out.write("\nALL: truth %i found %i recall %.3f | calls %i FP %i precision %.3f | F1 %.3f | GT concordance %s\n" %
               (totalTruth, totalFound, recall, totalCalls, totalFP, precision, f1,
                ("%.3f" % (gtMatch / float(totalFound)) if totalFound else "NA")))
+    if artifacts:
+        out.write("FP breakdown: %i at simulated artifacts (%i of %i artifacts called), %i elsewhere\n" %
+                  (artifactFP, len(artifactsCalled), len(artifacts), totalFP - artifactFP))
     if skippedTypes:
         out.write("call types not evaluated: %s\n" % (", ".join("%s=%i" % kv for kv in sorted(skippedTypes.items()))))
 
@@ -255,13 +278,15 @@ def main():
         out.write("false positives:\n")
         for c in calls:
             if c.matched is None:
-                out.write("  FP %s:%i-%i %s len=%s gt=%s qual=%s filter=%s id=%s\n" %
-                          (c.chrom, c.pos, c.end, c.svType, c.svLen, c.gt, c.qual, c.filter, c.vid))
+                out.write("  FP %s:%i-%i %s len=%s gt=%s qual=%s filter=%s id=%s%s\n" %
+                          (c.chrom, c.pos, c.end, c.svType, c.svLen, c.gt, c.qual, c.filter, c.vid,
+                           (" [artifact]" if c.isArtifact else "")))
 
     if opt.json:
         with open(opt.json, "w") as fp:
             json.dump({"label": opt.label, "classes": classes, "types": typeStats,
                        "truth": totalTruth, "found": totalFound, "calls": totalCalls, "fp": totalFP,
+                       "fpAtArtifacts": artifactFP, "artifacts": len(artifacts), "artifactsCalled": len(artifactsCalled),
                        "recall": recall, "precision": precision, "f1": f1,
                        "gtConcordance": (gtMatch / float(totalFound) if totalFound else None)}, fp, indent=1, sort_keys=True)
 

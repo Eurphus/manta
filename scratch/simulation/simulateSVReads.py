@@ -35,10 +35,17 @@ penalty in sequence which is not unique within the simulated region. It is meant
 for regression testing and for checking that a method change does what it is
 designed to do, not as a substitute for benchmarking on real data.
 
+Three sources of noise are simulated so that a loss of precision can be seen:
+chimeric read pairs, reads ending in sequence unrelated to the genome, and
+"artifact" variants which are present in a small fraction of reads only (as if
+from a third, low-coverage haplotype). Artifact variants are not part of the truth
+set, so a call at one of them counts as a false positive.
+
 Outputs (using the --out-prefix value as a file name prefix):
   PREFIX.ref.fa      reference sequence of the simulated region
   PREFIX.sam         unsorted alignments
   PREFIX.truth.tsv   one line per simulated variant allele
+  PREFIX.artifacts.tsv  one line per low-fraction artifact variant
 """
 
 import argparse
@@ -224,6 +231,16 @@ def makeVariants(args, rng, regionLen, insertSource):
         ("tiny_indel", 4),
         ("compound_del_del", 5), ("compound_del_nested", 3), ("compound_del_ins", 3), ("compound_ins_ins", 2),
     ]
+    if args.class_weights is not None:
+        # replace the default class mixture, e.g. "dup_small=1,dup_large=2"
+        knownLabels = set(c[0] for c in classes)
+        classes = []
+        for word in args.class_weights.split(","):
+            (label, weight) = word.split("=")
+            if label not in knownLabels:
+                raise Exception("Unknown variant class '%s', expected one of: %s" %
+                                (label, ",".join(sorted(knownLabels))))
+            classes.append((label, float(weight)))
     labels = [c[0] for c in classes]
     weights = np.array([c[1] for c in classes], dtype=float)
     weights /= weights.sum()
@@ -433,7 +450,30 @@ def cigarString(aln, readLen, clipOp):
     return "".join(out)
 
 
-def projectRead(hap, hapStart, hapEnd, isReadReverse, opt):
+def maskJunkPieces(pieces, readLen, junkLeft, junkRight):
+    """
+    Mark the first junkLeft and last junkRight bases of a read (in haplotype-forward read coordinates) as
+    sequence which does not come from the genome
+    """
+    validStart = junkLeft
+    validEnd = readLen - junkRight
+    ret = []
+    if junkLeft: ret.append((0, junkLeft, None, None, None))
+    for (qOff, length, refStart, refEnd, strand) in pieces:
+        a = max(qOff, validStart)
+        b = min(qOff + length, validEnd)
+        if b <= a: continue
+        if strand is None:
+            ret.append((a, b - a, None, None, None))
+        elif strand == "+":
+            ret.append((a, b - a, refStart + (a - qOff), refStart + (b - qOff), strand))
+        else:
+            ret.append((a, b - a, refEnd - (b - qOff), refEnd - (a - qOff), strand))
+    if junkRight: ret.append((validEnd, junkRight, None, None, None))
+    return ret
+
+
+def projectRead(hap, hapStart, hapEnd, isReadReverse, opt, junkLeft=0, junkRight=0):
     """
     Project one read, covering haplotype interval [hapStart,hapEnd), onto the reference
 
@@ -441,6 +481,8 @@ def projectRead(hap, hapStart, hapEnd, isReadReverse, opt):
     """
     readLen = hapEnd - hapStart
     pieces = hap.pieces(hapStart, hapEnd)
+    if junkLeft or junkRight:
+        pieces = maskJunkPieces(pieces, readLen, junkLeft, junkRight)
 
     # group pieces into chains which a mapper would report as a single gapped alignment
     chains = []
@@ -449,6 +491,8 @@ def projectRead(hap, hapStart, hapEnd, isReadReverse, opt):
     for piece in pieces:
         (qOff, length, refStart, refEnd, strand) = piece
         if strand is None:
+            if pendingInsert is not None:
+                piece = (pendingInsert[0], pendingInsert[1] + length, None, None, None)
             pendingInsert = piece
             continue
         isJoined = False
@@ -563,6 +607,8 @@ def main():
     parser.add_argument("--fragment-sd", type=float, default=60.)
     parser.add_argument("--site-spacing", type=int, default=15000, help="distance between simulated variant sites")
     parser.add_argument("--edge-margin", type=int, default=20000)
+    parser.add_argument("--class-weights", default=None,
+                        help="replace the default mixture of variant classes, format: CLASS=WEIGHT[,CLASS=WEIGHT...]")
     parser.add_argument("--snp-rate", type=float, default=0.0008, help="heterozygous SNP rate per haplotype")
     parser.add_argument("--max-inline-indel", type=int, default=25,
                         help="largest indel kept inside a single gapped alignment")
@@ -570,6 +616,13 @@ def main():
     parser.add_argument("--min-aligned", type=int, default=30, help="shortest alignment which is reported")
     parser.add_argument("--max-absorbed-clip", type=int, default=4)
     parser.add_argument("--kmer-size", type=int, default=32)
+    parser.add_argument("--chimera-rate", type=float, default=0.004,
+                        help="fraction of fragments whose two reads come from unrelated positions")
+    parser.add_argument("--junk-tail-rate", type=float, default=0.01,
+                        help="fraction of reads which end in sequence unrelated to the genome")
+    parser.add_argument("--artifact-fraction", type=float, default=0.1,
+                        help="depth of the artifact haplotype as a fraction of --coverage (0 to disable)")
+    parser.add_argument("--artifact-spacing", type=int, default=45000, help="distance between artifact variants")
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -594,6 +647,35 @@ def main():
     (hapEdits, truth) = makeVariants(args, rng, refLen, insertSource)
     log("simulated %i variant alleles, %i candidate mobile element source copies" % (len(truth), len(insertSource.alus)))
 
+    # Artifact variants sit halfway between real variant sites, and are only seen in the reads of a third
+    # low-coverage haplotype
+    artifactEdits = []
+    artifactTruth = []
+    if args.artifact_fraction > 0:
+        # real variants occupy at most the first ~80% of each site interval
+        pos = args.edge_margin + int(0.85 * args.site_spacing)
+        index = 0
+        while pos < (refLen - args.edge_margin):
+            group = "artifact%04i" % (index)
+            r = rng.random()
+            if r < 0.5:
+                edit = Edit("INS", pos, pos, insertSource.novel(logUniformInt(rng, 60, 600)))
+            elif r < 0.85:
+                edit = Edit("DEL", pos, pos + logUniformInt(rng, 60, 2000))
+            else:
+                edit = Edit("DUP", pos, pos + logUniformInt(rng, 100, 2000))
+            artifactEdits.append(edit)
+            artifactTruth.append(editToTruth(edit, 4, group, "artifact"))
+            index += 1
+            # keep artifacts on the grid of positions between real variant sites
+            pos += max(1, int(round(args.artifact_spacing / float(args.site_spacing)))) * args.site_spacing
+    with open(args.out_prefix + ".artifacts.tsv", "w") as fp:
+        fp.write("#chrom\tpos0\tend0\ttype\tsvlen\tgenotype\thapMask\tgroup\tclass\n")
+        for t in artifactTruth:
+            fp.write("%s\t%i\t%i\t%s\t%i\t%s\t%i\t%s\t%s\n" %
+                     (simChrom, t.pos, t.end, t.svType, t.svLen, "artifact", t.hapMask, t.group, t.note))
+    log("simulated %i artifact variants at %.0f%% of sample depth" % (len(artifactTruth), 100 * args.artifact_fraction))
+
     with open(args.out_prefix + ".truth.tsv", "w") as fp:
         fp.write("#chrom\tpos0\tend0\ttype\tsvlen\tgenotype\thapMask\tgroup\tclass\n")
         for t in sorted(truth, key=lambda x: (x.pos, x.end)):
@@ -603,7 +685,7 @@ def main():
 
     # heterozygous SNPs, kept away from the simulated breakpoints so that the truth coordinates stay exact
     blocked = np.zeros(refLen, dtype=bool)
-    for edits in hapEdits:
+    for edits in (hapEdits[0], hapEdits[1], artifactEdits):
         for e in edits: blocked[max(0, e.pos - 5):e.end + 5] = True
     haps = []
     for hapIndex in range(2):
@@ -617,6 +699,11 @@ def main():
             snpBases.append(alts[int(rng.integers(0, 3))][0])
         haps.append(Haplotype(refSeq, hapEdits[hapIndex], snpPos.tolist(), snpBases))
         log("haplotype %i: %i bases, %i segments, %i SNPs" % (hapIndex, haps[-1].length, len(haps[-1].segs), len(snpPos)))
+
+    # (haplotype, depth) pairs to sample reads from
+    hapDepths = [(haps[0], args.coverage / 2.), (haps[1], args.coverage / 2.)]
+    if artifactEdits:
+        hapDepths.append((Haplotype(refSeq, artifactEdits, [], []), args.coverage * args.artifact_fraction))
 
     nonUniquePrefix = getNonUniqueKmerPrefixSum(refSeq, args.kmer_size)
     log("%.2f%% of reference %i-mers are not unique within the region" %
@@ -648,10 +735,10 @@ def main():
     samFp.write("@RG\tID:sim\tSM:%s\tPL:ILLUMINA\n" % (args.sample))
     samFp.write("@PG\tID:simulateSVReads\tPN:simulateSVReads\tCL:%s\n" % (" ".join(sys.argv)))
 
-    stats = {"fragments": 0, "split": 0, "unmapped": 0, "complex": 0}
+    stats = {"fragments": 0, "split": 0, "unmapped": 0, "complex": 0, "chimeras": 0, "junk": 0}
 
-    for (hapIndex, hap) in enumerate(haps):
-        fragCount = int((args.coverage / 2.) * hap.length / (2. * readLen))
+    for (hapIndex, (hap, hapDepth)) in enumerate(hapDepths):
+        fragCount = int(hapDepth * hap.length / (2. * readLen))
         fragLen = np.clip(np.rint(rng.normal(args.fragment_mean, args.fragment_sd, fragCount)).astype(np.int64),
                           readLen, int(args.fragment_mean + 6 * args.fragment_sd))
         fragStart = rng.integers(0, hap.length - fragLen)
@@ -660,7 +747,21 @@ def main():
         hapArray = np.frombuffer(hap.seq, dtype=np.uint8)
 
         # haplotype-forward coordinates of the upstream and downstream read of each fragment
-        readStart = (fragStart, fragStart + fragLen - readLen)
+        readStart = [fragStart, fragStart + fragLen - readLen]
+
+        # the downstream read is sequenced from the reverse strand, except in a chimeric fragment where the
+        # second read comes from an unrelated position in either orientation
+        isChimera = (rng.random(fragCount) < args.chimera_rate)
+        readStart[1] = np.where(isChimera, rng.integers(0, hap.length - readLen, fragCount), readStart[1])
+        isMateReverse = [np.zeros(fragCount, dtype=bool), np.where(isChimera, rng.random(fragCount) < 0.5, True)]
+        stats["chimeras"] += int(isChimera.sum())
+
+        # number of bases at the 3' end of each read which are replaced by unrelated sequence
+        junkLen = []
+        for mate in range(2):
+            isJunk = (rng.random(fragCount) < args.junk_tail_rate)
+            junkLen.append(np.where(isJunk, rng.integers(8, 70, fragCount), 0))
+            stats["junk"] += int(isJunk.sum())
 
         # sequence and base qualities for all reads, both in haplotype-forward orientation
         readSeqs = []
@@ -671,8 +772,20 @@ def main():
             isError = (rng.random(window.shape) < qualErrorProb[qualIndex])
             shift = rng.integers(1, 4, size=window.shape, dtype=np.uint8)
             window = np.where(isError, (window + shift) % 4, window).astype(np.uint8)
+            quals = qualChoices[qualIndex].copy()
+
+            # A junk tail is at the 3' end of the read as sequenced, which is the high-coordinate end of a
+            # forward read and the low-coordinate end of a reverse read in haplotype-forward orientation. Half of
+            # the junk tails are given a very low base quality.
+            column = np.arange(readLen)[None, :]
+            junk = junkLen[mate][:, None]
+            isJunkBase = np.where(isMateReverse[mate][:, None], column < junk, column >= (readLen - junk))
+            window = np.where(isJunkBase, rng.integers(0, 4, size=window.shape, dtype=np.uint8), window).astype(np.uint8)
+            isLowQualTail = (rng.random(fragCount) < 0.5)[:, None]
+            quals = np.where(isJunkBase & isLowQualTail, 2, quals).astype(np.uint8)
+
             readSeqs.append(codeBase[window])
-            readQuals.append((qualChoices[qualIndex] + 33).astype(np.uint8))
+            readQuals.append((quals + 33).astype(np.uint8))
 
         # fast path: reads contained in a single forward reference segment
         simple = []
@@ -680,7 +793,7 @@ def main():
         for mate in range(2):
             s0 = np.searchsorted(hap.segHapStartArray, readStart[mate], side="right") - 1
             s1 = np.searchsorted(hap.segHapStartArray, readStart[mate] + readLen - 1, side="right") - 1
-            isSimple = (s0 == s1) & hap.segIsForwardRef[s0]
+            isSimple = (s0 == s1) & hap.segIsForwardRef[s0] & (junkLen[mate] == 0)
             simple.append(isSimple)
             simplePos.append(hap.segRefStart[s0] + (readStart[mate] - hap.segHapStartArray[s0]))
 
@@ -695,13 +808,15 @@ def main():
             # labeled as read 1.
             mateAlns = []
             for mate in range(2):
-                isReadReverse = (mate == 1)
+                isReadReverse = bool(isMateReverse[mate][fragIndex])
                 if simple[mate][fragIndex]:
                     pos = int(simplePos[mate][fragIndex])
                     alns = [Aln(pos, pos + readLen, simpleCigar, isReadReverse, False, 0, readLen, readLen)]
                 else:
                     hs = int(readStart[mate][fragIndex])
-                    alns = projectRead(hap, hs, hs + readLen, isReadReverse, args)
+                    junk = int(junkLen[mate][fragIndex])
+                    (junkLeft, junkRight) = ((junk, 0) if isReadReverse else (0, junk))
+                    alns = projectRead(hap, hs, hs + readLen, isReadReverse, args, junkLeft, junkRight)
                     stats["complex"] += 1
                 mateAlns.append(alns)
 
@@ -752,7 +867,7 @@ def main():
                 if not alns:
                     stats["unmapped"] += 1
                     # an unmapped read is written in its sequenced orientation, at the position of its mate
-                    isReadReverse = (mate == 1)
+                    isReadReverse = bool(isMateReverse[mate][fragIndex])
                     seq = (revcomp(fwdSeq) if isReadReverse else fwdSeq)
                     qual = (fwdQual[::-1] if isReadReverse else fwdQual)
                     flag = baseFlag | 0x4
@@ -798,8 +913,9 @@ def main():
                                  seq.decode(), qual.decode(), tags))
 
     samFp.close()
-    log("wrote %(fragments)i fragments: %(complex)i reads projected through a variant, %(split)i split reads, "
-        "%(unmapped)i unmapped reads" % stats)
+    log("wrote %(fragments)i fragments: %(complex)i reads projected through a variant or junk tail, "
+        "%(split)i split reads, %(unmapped)i unmapped reads, %(chimeras)i chimeric fragments, "
+        "%(junk)i reads with junk tails" % stats)
 
 
 if __name__ == "__main__":
