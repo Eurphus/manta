@@ -120,6 +120,15 @@ static void calculateAlignScore(
       querySize - (alignment.leftMismatches + alignment.homMismatches + alignment.rightMismatches);
 }
 
+// minimum number of bases required on each side of a breakend for a read to count as split read evidence:
+static const unsigned minSplitFlankSize(16);
+static const unsigned minSplitFlankSizeTier2(8);
+
+bool isSplitReadAlignable(const unsigned querySize, const unsigned targetSize)
+{
+  return ((querySize >= (2 * minSplitFlankSizeTier2)) && (querySize < targetSize));
+}
+
 static bool isEvidenceCheck(const SRAlignmentInfo& alignment, const unsigned minFlankSize)
 {
   if (alignment.leftSize < minFlankSize) return false;
@@ -141,10 +150,8 @@ static void setEvidence(SRAlignmentInfo& alignment)
   //
 
   // adding new flank size threshold -- this might have to be changed based on sv size:
-  static const unsigned minFlankSize(16);
-  static const unsigned minFlankSizeTier2(8);
-  alignment.isEvidence      = isEvidenceCheck(alignment, minFlankSize);
-  alignment.isTier2Evidence = isEvidenceCheck(alignment, minFlankSizeTier2);
+  alignment.isEvidence      = isEvidenceCheck(alignment, minSplitFlankSize);
+  alignment.isTier2Evidence = isEvidenceCheck(alignment, minSplitFlankSizeTier2);
 
   alignment.evidence = 0;
   if (!(alignment.isEvidence || alignment.isTier2Evidence)) return;

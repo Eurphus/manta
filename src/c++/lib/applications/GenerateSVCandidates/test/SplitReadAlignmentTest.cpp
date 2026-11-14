@@ -427,4 +427,22 @@ BOOST_AUTO_TEST_CASE(test_Exception)
   BOOST_REQUIRE_EQUAL(alignmentInfo2.alignScore, 7);
 }
 
+// Test which query and target size combinations can be passed to splitReadAligner. A query must be shorter
+// than the target, and at least long enough to have the minimum tier2 flank size (8) on both sides of a breakend.
+BOOST_AUTO_TEST_CASE(test_isSplitReadAlignable)
+{
+  BOOST_REQUIRE(isSplitReadAlignable(150, 1000));
+  BOOST_REQUIRE(isSplitReadAlignable(16, 17));
+
+  // query is not shorter than the target
+  BOOST_REQUIRE(!isSplitReadAlignable(150, 150));
+  BOOST_REQUIRE(!isSplitReadAlignable(400, 300));
+
+  // query is too short to provide split read evidence, for instance a supplementary alignment record with
+  // CIGAR 1M149H has a read length of 1
+  BOOST_REQUIRE(!isSplitReadAlignable(15, 1000));
+  BOOST_REQUIRE(!isSplitReadAlignable(1, 1000));
+  BOOST_REQUIRE(!isSplitReadAlignable(0, 1000));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

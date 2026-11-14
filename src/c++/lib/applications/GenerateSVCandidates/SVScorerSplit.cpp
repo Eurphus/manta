@@ -160,6 +160,21 @@ static void getReadSplitScore(
   // we can skip this read:
   if (altBp1ReadSupport.isSplitEvaluated) return;
 
+  // Skip reads which cannot be evaluated as split read evidence because they are too short to provide any, or
+  // because they are longer than the allele sequences they would be compared to. Both cases would otherwise
+  // end the analysis with an exception in splitReadAligner.
+  {
+    const unsigned readSize(bamRead.read_size());
+    if (!(isSplitReadAlignable(readSize, svAlignInfo.bp1ContigSeq().size()) &&
+          isSplitReadAlignable(readSize, svAlignInfo.bp2ContigSeq().size()))) {
+      return;
+    }
+    if ((!isRNA) && (!(isSplitReadAlignable(readSize, svAlignInfo.bp1ReferenceSeq().size()) &&
+                       isSplitReadAlignable(readSize, svAlignInfo.bp2ReferenceSeq().size())))) {
+      return;
+    }
+  }
+
   SVFragmentEvidenceAlleleBreakendPerRead& refBp1ReadSupport(fragment.ref.bp1.getRead(isRead1));
   SVFragmentEvidenceAlleleBreakendPerRead& altBp2ReadSupport(fragment.alt.bp2.getRead(isRead1));
   SVFragmentEvidenceAlleleBreakendPerRead& refBp2ReadSupport(fragment.ref.bp2.getRead(isRead1));

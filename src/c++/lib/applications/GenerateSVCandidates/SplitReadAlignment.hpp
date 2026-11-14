@@ -52,6 +52,15 @@ std::ostream& operator<<(std::ostream& os, const SRAlignmentInfo& info);
 
 /// Align \p querySeq to \p targetSeq and return alignment details in \p alignment
 ///
+/// \return true if a query of size \p querySize can be evaluated against a target of size \p targetSize by
+/// splitReadAligner
+///
+/// A query must be shorter than the target. A query must also be long enough to have the minimum number of
+/// bases required on each side of a breakend to count as (tier2) evidence, shorter reads cannot provide any
+/// split read evidence. Reads which fail this test are found in real data, for example a supplementary
+/// alignment record in which all but a few bases are hard-clipped.
+bool isSplitReadAlignable(const unsigned querySize, const unsigned targetSize);
+
 /// \param[in] flankScoreSize the number of bases to score past the end of microhomology range
 ///
 /// \param[in] targetBpOffsetRange this is the range of the breakend (accounting for microhomology) in
