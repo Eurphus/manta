@@ -42,6 +42,24 @@ if (NOT GIT_VERSION)
 endif()
 
 if (NOT GIT_VERSION)
+    # The helper above locates the repository by its .git directory, which does not exist in a linked worktree
+    # (git worktree add). Ask git directly before giving up:
+    find_program(GIT_PROGRAM git)
+    if (GIT_PROGRAM)
+        execute_process(
+            COMMAND "${GIT_PROGRAM}" describe --match "v[0-9]*" --dirty
+            WORKING_DIRECTORY "${SRC_DIR}"
+            RESULT_VARIABLE GIT_DESCRIBE_RESULT
+            OUTPUT_VARIABLE GIT_DESCRIBE_OUTPUT
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (GIT_DESCRIBE_RESULT EQUAL 0)
+            set(GIT_VERSION "${GIT_DESCRIBE_OUTPUT}")
+        endif ()
+    endif ()
+endif ()
+
+if (NOT GIT_VERSION)
     set(GIT_VERSION "UNKNOWN")
 else ()
     STRING(REGEX REPLACE "^v" "" GIT_VERSION ${GIT_VERSION})
