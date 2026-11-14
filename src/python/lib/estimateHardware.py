@@ -69,14 +69,14 @@ def getNodeRealCoreCount() :
     elif platform.system().find("Darwin") > -1:
         import subprocess
         cmd=['sysctl', '-n', 'hw.physicalcpu']
-        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE)
+        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE, universal_newlines=True)
         for line in proc.stdout :
             cpuCount=int(line.strip())
             break
 
         return cpuCount
     else:
-        raise EstException("Can't determine total physical cores available on OS: '%s'" (platform.system()))
+        raise EstException("Can't determine total physical cores available on OS: '%s'" % (platform.system()))
 
 
 
@@ -105,7 +105,7 @@ def getNodeHyperthreadCoreCount():
     elif platform.system().find("Darwin") > -1:
         import subprocess
         cmd=['sysctl', '-n', 'hw.logicalcpu']
-        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE)
+        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE, universal_newlines=True)
         for line in proc.stdout :
             cpuCount=int(line.strip())
             break
@@ -113,7 +113,7 @@ def getNodeHyperthreadCoreCount():
         import multiprocessing
         cpuCount = multiprocessing.cpu_count()
     else:
-        raise EstException("Can't determine total logical cores available on OS: '%s'" (platform.system()))
+        raise EstException("Can't determine total logical cores available on OS: '%s'" % (platform.system()))
 
     return cpuCount
 
@@ -144,15 +144,15 @@ def getNodeMemMb():
             raise EstException("Unexpected format in %s" % (mname))
 
         try:
-            memMb = 1+((int(splat[1])-1)/1024)
+            memMb = 1+((int(splat[1])-1)//1024)
         except:
             raise EstException("Unexpected format in %s" % (mname))
     elif platform.system().find("Darwin") > -1:
         import subprocess
         cmd=['sysctl', '-n', 'hw.memsize']
-        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE)
+        proc=subprocess.Popen(cmd,shell=False,stdout=subprocess.PIPE, universal_newlines=True)
         for line in proc.stdout :
-            memMb=int(line.strip())/(1024*1024)
+            memMb=int(line.strip())//(1024*1024)
             break
     elif platform.system().find("Windows") > -1:
         process = os.popen('wmic memorychip get capacity')
@@ -161,9 +161,9 @@ def getNodeMemMb():
         totalMem = 0
         for m in result.split("  \r\n")[1:-1]:
             totalMem += int(m)
-        memMb = totalMem / (1024**2)
+        memMb = totalMem // (1024**2)
     else:
-        raise EstException("Can't determine total memory available on OS: '%s'" (platform.system()))
+        raise EstException("Can't determine total memory available on OS: '%s'" % (platform.system()))
 
     return memMb
 

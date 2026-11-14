@@ -53,18 +53,5 @@ file(WRITE ${CONFIG_FILE} "WORKFLOW_VERSION\t${WORKFLOW_VERSION}\n")
 #
 # get build timestamp
 #
-# python is a cross platform way to do this without newer cmake,
-# and the project has a compile and runtime python requirement anyway.
-#
-find_package(PythonInterp QUIET)
-if (PYTHONINTERP_FOUND)
-    execute_process(
-        COMMAND ${PYTHON_EXECUTABLE} -c "import datetime;print(datetime.datetime.utcnow().isoformat())"
-        OUTPUT_VARIABLE BUILD_TIME
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-    set (BUILD_TIME "${BUILD_TIME}Z")
-else ()
-    set (BUILD_TIME "UNKNOWN")
-endif ()
+string(TIMESTAMP BUILD_TIME "%Y-%m-%dT%H:%M:%SZ" UTC)
 file(APPEND ${CONFIG_FILE} "BUILD_TIME\t${BUILD_TIME}\n")

@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <new>
 #include <iosfwd>
 
 #include "bam_seq.hpp"
@@ -47,7 +48,8 @@ struct bam_record {
       // else empty->empty : do nothing...
     } else {
       if (!br.empty()) {
-        bam_copy1(_bp, br._bp);
+        // newer htslib versions report allocation failure here via a null return value
+        if (nullptr == bam_copy1(_bp, br._bp)) throw std::bad_alloc();
       } else {
         freeBam();
         _bp = bam_init1();

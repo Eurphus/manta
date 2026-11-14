@@ -25,11 +25,8 @@
 ##
 ################################################################################
 
-if (WIN32)
-    cmake_minimum_required(VERSION 3.1.0)
-else ()
-    cmake_minimum_required(VERSION 2.8.12)
-endif ()
+# cmake 3.5 is the oldest version which cmake 4.x will still accept as a compatibility target
+cmake_minimum_required(VERSION 3.5)
 
 message (STATUS "==== Initializing project cmake configuration ====")
 
@@ -125,18 +122,31 @@ set(THIS_PROJECT_NAME "manta")
 
 project (${THIS_PROJECT_NAME})
 
-# Find python2 interpreter
-find_package(PythonInterp 2 QUIET)
-if (NOT PYTHONINTERP_FOUND)
-    message (WARNING "No python2 interpreter found, disabling optional python build and installation components. Installed workflow requires python2 interpreter to run.")
-else()
-    set (MINIMUM_PYTHON_VERSION "2.6")
-    if (${PYTHON_VERSION_STRING} VERSION_LESS ${MINIMUM_PYTHON_VERSION})
-        message (WARNING
-            "Python2 interpretor must be at least version (${MINIMUM_PYTHON_VERSION}). Found version ${PYTHON_VERSION_STRING} at '${PYTHON_EXECUTABLE}'."
-		    " Disabling optional python build and installation components. Installed workflow requires python ${MINIMUM_PYTHON_VERSION} or higher to run.")
-        set(PYTHONINTERP_FOUND false)
+# Find python3 interpreter
+#
+# The workflow (configManta.py, pyflow) was ported from python2 to python3 in this fork.
+# PYTHON_EXECUTABLE/PYTHONINTERP_FOUND are kept as the variable names used by the rest of
+# the build scripts.
+#
+set (MINIMUM_PYTHON_VERSION "3.6")
+set (PYTHONINTERP_FOUND false)
+if (NOT (CMAKE_VERSION VERSION_LESS "3.12"))
+    find_package(Python3 ${MINIMUM_PYTHON_VERSION} QUIET COMPONENTS Interpreter)
+    if (Python3_Interpreter_FOUND)
+        set (PYTHONINTERP_FOUND true)
+        set (PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+        set (PYTHON_VERSION_STRING "${Python3_VERSION}")
     endif ()
+else ()
+    find_package(PythonInterp 3 QUIET)
+    if (PYTHONINTERP_FOUND AND (${PYTHON_VERSION_STRING} VERSION_LESS ${MINIMUM_PYTHON_VERSION}))
+        set (PYTHONINTERP_FOUND false)
+    endif ()
+endif ()
+if (NOT PYTHONINTERP_FOUND)
+    message (WARNING "No python3 interpreter (version ${MINIMUM_PYTHON_VERSION}+) found, disabling optional python build and installation components. Installed workflow requires python ${MINIMUM_PYTHON_VERSION} or higher to run.")
+else ()
+    message (STATUS "Found python3 interpreter version ${PYTHON_VERSION_STRING} at '${PYTHON_EXECUTABLE}'")
 endif()
 
 set (TARGET_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})

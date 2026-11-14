@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # Manta - Structural Variant and Indel Caller
 # Copyright (c) 2013-2019 Illumina, Inc.
@@ -21,7 +21,6 @@
 
 import sys
 import gzip
-from io import BufferedReader
 from subprocess import check_output
 from os import path
 from os.path import exists
@@ -94,10 +93,9 @@ def scanVcf(vcfFile):
     invMateDict = {}
 
     if vcfFile.endswith('gz'):
-        gzfp = gzip.open(vcfFile, 'rb')
-        fpVcf = BufferedReader(gzfp)
+        fpVcf = gzip.open(vcfFile, 'rt')
     else:
-        fpVcf = open(vcfFile, 'rb')
+        fpVcf = open(vcfFile, 'r')
 
     for line in fpVcf:
         if line[0] == '#':
@@ -118,7 +116,7 @@ def scanVcf(vcfFile):
 
 def getReference(samtools, refFasta, chrom, start, end):
     region = "%s:%d-%d" % (chrom, start, end)
-    samtoolsOut = check_output([samtools, "faidx", refFasta, region])
+    samtoolsOut = check_output([samtools, "faidx", refFasta, region], universal_newlines=True)
     refSeq = ""
     for seq in samtoolsOut.split('\n'):
         if not seq.startswith(">"):
@@ -140,10 +138,9 @@ def convertInversions(samtools, refFasta, vcfFile, invMateDict):
     bufferedPos = -1
 
     if vcfFile.endswith('gz'):
-        gzfp = gzip.open(vcfFile, 'rb')
-        fpVcf = BufferedReader(gzfp)
+        fpVcf = gzip.open(vcfFile, 'rt')
     else:
-        fpVcf = open(vcfFile, 'rb')
+        fpVcf = open(vcfFile, 'r')
 
     for line in fpVcf:
         if line.startswith('#'):

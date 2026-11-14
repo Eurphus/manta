@@ -100,15 +100,14 @@ found in the path
 
 #### Bundled dependencies
 
-Note that during the configuration step, the following dependencies will be
-built from source if they are not found:
+Note that during the configuration step, the following dependency will be
+built from source if it is not found:
 
-* cmake 2.8.12+
 * boost 1.58.0+
 
-To avoid the extra time associated with this step, ensure that (1)
-cmake 2.8.12+ is in your PATH and (2) BOOST\_ROOT is defined to point
-to boost 1.58.0 or newer.
+To avoid the extra time associated with this step, ensure that BOOST\_ROOT
+is defined to point to boost 1.58.0 or newer. cmake 3.5+ must be available
+in your PATH, it is no longer bundled.
 
 ## General Debugging Notes
 
@@ -171,7 +170,7 @@ see the `builderImage` variable.
 
 ## Coding Guidelines
 
-Supported project languages are C++11 for core methods development and python2 (2.6+) for workflow and scripting support.
+Supported project languages are C++11 for core methods development and python3 (3.6+) for workflow and scripting support.
 
 ### Source formatting
 

@@ -60,6 +60,27 @@ else  ()
     message(FATAL_ERROR "${TMP_MSG}")
 endif ()
 
+# bzip2 and lzma are optional htslib dependencies. They are only required to read CRAM files
+# written with the (non-default) bzip2/lzma block codecs, so each is enabled when available
+# and disabled otherwise instead of being a hard build requirement.
+set (HTSLIB_CODEC_CONFIGOPT "")
+find_package(BZip2 QUIET)
+if (BZIP2_FOUND)
+    set (THIS_ADDITIONAL_LIB ${THIS_ADDITIONAL_LIB} bz2)
+    message(STATUS "bzip2 found: enabling htslib bzip2 support")
+else ()
+    set (HTSLIB_CODEC_CONFIGOPT ${HTSLIB_CODEC_CONFIGOPT} --disable-bz2)
+    message(STATUS "bzip2 not found: disabling htslib bzip2 support (CRAM files using the bzip2 codec cannot be read)")
+endif ()
+find_package(LibLZMA QUIET)
+if (LIBLZMA_FOUND)
+    set (THIS_ADDITIONAL_LIB ${THIS_ADDITIONAL_LIB} lzma)
+    message(STATUS "liblzma found: enabling htslib lzma support")
+else ()
+    set (HTSLIB_CODEC_CONFIGOPT ${HTSLIB_CODEC_CONFIGOPT} --disable-lzma)
+    message(STATUS "liblzma not found: disabling htslib lzma support (CRAM files using the lzma codec cannot be read)")
+endif ()
+
 superset(THIS_ADDITIONAL_LIB "${THIS_ADDITIONAL_LIB}")
 
 #
@@ -71,7 +92,7 @@ superset(CTPL_DIR "${THIS_REDIST_DIR}/${CTPL_PREFIX}")
 #
 # htslib
 #
-set(HTSLIB_PREFIX "htslib-1.9")
+set(HTSLIB_PREFIX "htslib-1.25")
 superset(HTSLIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/${HTSLIB_PREFIX}")
 superset(HTSLIB_LIBRARY "${HTSLIB_DIR}/libhts.a")
 
@@ -95,7 +116,7 @@ set (HTSLIB_FINAL_TASK ${HTSLIB_DIR})
 if (NOT WIN32)
     add_custom_command(
         OUTPUT ${HTSLIB_LIBRARY}
-        COMMAND ./configure CC=${CMAKE_C_COMPILER} ${HTSLIB_CONFIGOPT} --disable-libcurl --disable-bz2 --disable-lzma >htslib.config.log 2>htslib.config.error.log || \(echo "Failed to configure htslib, see ${HTSLIB_DIR}/htslib.config.error.log for details." && exit 1\)
+        COMMAND ./configure CC=${CMAKE_C_COMPILER} ${HTSLIB_CONFIGOPT} --disable-libcurl --disable-s3 --disable-gcs --disable-plugins --disable-ref-cache --without-libdeflate ${HTSLIB_CODEC_CONFIGOPT} >htslib.config.log 2>htslib.config.error.log || \(echo "Failed to configure htslib, see ${HTSLIB_DIR}/htslib.config.error.log for details." && exit 1\)
         COMMAND $(MAKE) lib-static bgzip htsfile tabix >htslib.build.log 2>htslib.build.error.log || \(echo "Failed to build htslib, see ${HTSLIB_DIR}/htslib.build.error.log for details." && exit 1\)
         WORKING_DIRECTORY ${HTSLIB_DIR}
         DEPENDS ${HTSLIB_DIR}
@@ -117,7 +138,7 @@ endif ()
 #
 # samtools
 #
-set(SAMTOOLS_PREFIX "samtools-1.9")
+set(SAMTOOLS_PREFIX "samtools-1.25")
 set(SAMTOOLS_DIR "${CMAKE_CURRENT_BINARY_DIR}/${SAMTOOLS_PREFIX}")
 set(SAMTOOLS_LIBRARY "${SAMTOOLS_DIR}/libbam.a")
 superset(SAMTOOLS_PROG "${SAMTOOLS_DIR}/samtools")
@@ -136,7 +157,7 @@ if (NOT WIN32)
     add_custom_command(
         OUTPUT ${SAMTOOLS_PROG}
         COMMAND ./configure CC=${CMAKE_C_COMPILER} ${HTSLIB_CONFIGOPT} --without-curses --with-htslib=${HTSLIB_DIR} >samtools.config.log 2>samtools.config.error.log || \(echo "Failed to configure samtools, see ${SAMTOOLS_DIR}/samtools.config.error.log for details." && exit 1\)
-        COMMAND $(MAKE) all >samtools.build.log 2>samtools.build.error.log  || \(echo "Failed to build samtools, see ${SAMTOOLS_DIR}/samtools.build.error.log for details." && exit 1\)
+        COMMAND $(MAKE) samtools >samtools.build.log 2>samtools.build.error.log  || \(echo "Failed to build samtools, see ${SAMTOOLS_DIR}/samtools.build.error.log for details." && exit 1\)
         DEPENDS ${HTSLIB_LIBRARY}
         DEPENDS ${SAMTOOLS_DIR}
         WORKING_DIRECTORY ${SAMTOOLS_DIR}
@@ -156,25 +177,34 @@ endif ()
 # pyflow
 #
 
-set(PYFLOW_PREFIX "pyflow-1.1.20")
+# pyflow 1.1.20 is vendored as plain source in redist/pyflow (instead of the original
+# release tarball) because it carries the python3 port required by this fork.
+#
+set(PYFLOW_PREFIX "pyflow")
+set(PYFLOW_SRC_DIR "${THIS_REDIST_DIR}/${PYFLOW_PREFIX}/src")
 set(PYFLOW_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PYFLOW_PREFIX}")
 set(PYFLOW_SCRIPT "${PYFLOW_DIR}/src/pyflow.py")
+file(GLOB PYFLOW_SRC_FILES "${PYFLOW_SRC_DIR}/*.py")
 
 set (PYFLOW_DEPENDS "${PYFLOW_SCRIPT}")
 add_custom_command(
     OUTPUT ${PYFLOW_SCRIPT}
     COMMAND ${CMAKE_COMMAND} -E remove_directory "${PYFLOW_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E tar xjf "${THIS_REDIST_DIR}/${PYFLOW_PREFIX}.tar.bz2"
-    COMMAND ${CMAKE_COMMAND} -E remove -f "${PYFLOW_DIR}/src/__init__.py"
-    COMMENT "Unpacking pyflow")
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PYFLOW_DIR}/src"
+    COMMAND ${CMAKE_COMMAND} -E copy ${PYFLOW_SRC_FILES} "${PYFLOW_DIR}/src"
+    DEPENDS ${PYFLOW_SRC_FILES}
+    COMMENT "Staging pyflow")
 
 if (PYTHONINTERP_FOUND)
-    set (PYFLOW_DEPENDS "${PYFLOW_SCRIPT}c")
+    # byte-compilation is used as a build-time syntax check only, compiled files are not installed
+    set (PYFLOW_COMPILE_STAMP "${PYFLOW_DIR}/pyflow.compile.stamp")
+    set (PYFLOW_DEPENDS "${PYFLOW_COMPILE_STAMP}")
     add_custom_command(
-        OUTPUT ${PYFLOW_SCRIPT}c
-        COMMAND ${PYTHON_EXECUTABLE} -m compileall -q "${PYFLOW_DIR}/src"
+        OUTPUT ${PYFLOW_COMPILE_STAMP}
+        COMMAND ${PYTHON_EXECUTABLE} -m py_compile ${PYFLOW_SRC_FILES}
+        COMMAND ${CMAKE_COMMAND} -E touch "${PYFLOW_COMPILE_STAMP}"
         DEPENDS ${PYFLOW_SCRIPT}
-        COMMENT "Building pyflow")
+        COMMENT "Checking pyflow")
 endif()
 
 install_python_lib_dir("${PYFLOW_DIR}/src" "${THIS_PYTHON_LIBDIR}/pyflow")

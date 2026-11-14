@@ -1,4 +1,4 @@
-#! /usr/bin/env python2
+#!/usr/bin/env python3
 #
 # Manta - Structural Variant and Indel Caller
 # Copyright (c) 2013-2019 Illumina, Inc.
@@ -52,7 +52,7 @@ if __name__=='__main__':
 
     firstBam = ""
     fileCount = 0
-    fpList = open(bamListFile, 'wb')
+    fpList = open(bamListFile, 'w')
     for bam in glob(bamMask):
         fpList.write(bam + "\n")
 

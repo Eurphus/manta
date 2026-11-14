@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Manta - Structural Variant and Indel Caller
 # Copyright (c) 2013-2019 Illumina, Inc.
@@ -134,7 +134,7 @@ def main() :
             """
             return (rexclude.match(line) is not None)
 
-        rfp = gzip.open(f)
+        rfp = gzip.open(f, 'rt')
         for line in rfp :
             if rstreamFilter(line) : continue
             yield line

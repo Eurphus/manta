@@ -40,17 +40,13 @@ BUILD_DIR=${INSTALL_DIR}/build
 BIN_DIR=${INSTALL_DIR}/bin
 INCLUDE_DIR=${INSTALL_DIR}/include
 
-CMAKE_MAJOR=2
-CMAKE_MINOR=8
-CMAKE_PATCH=12
-CMAKE_PATCH_MIN=12
+# cmake 3.5 is the minimum version supported by the project CMakeLists.txt
+CMAKE_MAJOR=3
+CMAKE_MINOR=5
+CMAKE_PATCH_MIN=0
 CMAKE_REQUIRED="$CMAKE_MAJOR.$CMAKE_MINOR.$CMAKE_PATCH_MIN"
-TARBALL_VERSION="$CMAKE_MAJOR.$CMAKE_MINOR.$CMAKE_PATCH"
+
 SCRIPT=`basename "$0"`
-SOURCE_TARBALL=${REDIST_DIR}/cmake-$TARBALL_VERSION.tar.bz2
-TARBALL_COMPRESSION=j
-SOURCE_DIR=${BUILD_DIR}/cmake-$TARBALL_VERSION
-CMAKE_DIR=cmake-$CMAKE_MAJOR.$CMAKE_MINOR
 
 AVAILABLE_CMAKE_VERSION=`cmake --version 2> /dev/null`
 if [[ "${AVAILABLE_CMAKE_VERSION}" =~ ^cmake\ version\ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] ; then
@@ -64,35 +60,8 @@ if [[ "${AVAILABLE_CMAKE_VERSION}" =~ ^cmake\ version\ ([0-9]+)\.([0-9]+)\.([0-9
     fi
 fi
 
-OLD_CMAKE_VERSION=`${BIN_DIR}/cmake --version 2> /dev/null`;
-if [[ $OLD_CMAKE_VERSION == "cmake version $TARBALL_VERSION" ]] ; then
-    ilog "cmake version \"$TARBALL_VERSION\" is already installed at ${BIN_DIR}/cmake"
-    echo "${BIN_DIR}/cmake"
-    exit 0
-elif [[ $OLD_CMAKE_VERSION != "" ]] ; then
-    ilog "ERROR: unable to install cmake version \"$TARBALL_VERSION\" in ${BIN_DIR}"
-    ilog "\tcmake version \"$OLD_CMAKE_VERSION\" is in the way."
-    ilog "\tPlease use an empty location to build the product."
-    exit 1
-fi
-
-
-##
-## cleanup all existing source directory before proceeding
-##
-rm -rf $SOURCE_DIR
-
-common_create_source
-
-ilog "Extracted cmake version $TARBALL_VERSION source code into $SOURCE_DIR"
-cmd="cd $SOURCE_DIR && ./bootstrap --prefix=\"${INSTALL_DIR}\" --parallel=$PARALLEL && make -j $PARALLEL && make install"
-ilog "Installing cmake using: '$cmd'"
-eval $cmd 1>&2
-
-if [ $? != 0 ] ; then ilog "ERROR: cmake build failed: Terminating..."; exit 1 ; fi
-
-ilog "Cleaning up ${SOURCE_DIR}"
-rm -rf ${SOURCE_DIR}
-
-ilog "CMake-$TARBALL_VERSION installed successfully"
-echo "${BIN_DIR}/cmake"
+# This fork no longer bundles a cmake source distribution to bootstrap from (the previously
+# bundled cmake 2.8.12 is older than the minimum required version), so a system cmake is required.
+ilog "ERROR: cmake $CMAKE_REQUIRED or newer is required, but was not found on PATH."
+ilog "\tPlease install cmake (version $CMAKE_REQUIRED+) and rerun configure."
+exit 1

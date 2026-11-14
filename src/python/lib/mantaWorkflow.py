@@ -66,7 +66,7 @@ def getOverlapCallRegions(params, genomeRegion) :
 
     # get overlapping subregions
     tabixCmd = [params.tabixBin, params.callRegionsBed, genomeRegionStr]
-    proc = subprocess.Popen(tabixCmd, stdout=subprocess.PIPE)
+    proc = subprocess.Popen(tabixCmd, stdout=subprocess.PIPE, universal_newlines=True)
     for line in proc.stdout:
         # format check of the bed file
         words = line.strip().split()

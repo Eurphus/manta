@@ -42,21 +42,25 @@ be found in the [developer guide][developerGuide].
 
 ### Prerequisites to build from source
 
-[![Build Status][tcistatus]][tcihome]
-
-[tcistatus]:https://travis-ci.org/Illumina/manta.svg?branch=master
-[tcihome]:https://travis-ci.org/Illumina/manta
-
 A C++11 compiler is required. These are the current minimum compiler versions enforced
 by the build system:
 
-* python 2.6+
+* python 3.6+
 * gcc 4.8+ OR clang 3.2+ (OR Visual Studio 2013+, see windows note below)
+* cmake 3.5+
 * libz (including headers)
+* (optional) libbz2 and liblzma (including headers). When found, these are used to enable
+  support for CRAM files written with the bzip2/lzma block codecs.
+
+This fork is routinely built with gcc 13 and cmake 3.28.
 
 ### Runtime prerequisites
 
-* python 2.6+
+* python 3.6+
+
+Note that this is a change from the original manta distribution, which required python 2.
+The workflow and all helper scripts were ported to python 3 in this fork, and no longer
+run under python 2.
 
 ### Operating System Guidelines
 
@@ -80,39 +84,14 @@ possible for Visual Studio users. See the [developer guide][DeveloperGuide] for 
 
 ### Linux Package Additions
 
-##### Ubuntu 14.04 and 16.04
+##### Ubuntu 22.04 and 24.04
 
     apt-get update -qq
-    apt-get install -qq bzip2 gcc g++ make python zlib1g-dev
+    apt-get install -qq bzip2 cmake gcc g++ make python3 zlib1g-dev libbz2-dev liblzma-dev
 
-##### Ubuntu 12.04
+##### Rocky/Alma Linux 8 and 9
 
-    apt-get update -qq
-    apt-get install -qq bzip2 gcc g++ make python python-software-properties zlib1g-dev
-    # add gcc 4.8 from ubuntu ppa:
-    add-apt-repository -y ppa:ubuntu-toolchain-r/test
-    apt-get update -qq
-    apt-get install -qq gcc-4.8 g++-4.8
-
-    # Prior to build configuration, set CC/CXX to gcc 4.8:
-    export CC=/usr/bin/gcc-4.8
-    export CXX=/usr/bin/g++-4.8
-
-##### CentOS 7
-
-    yum install -y tar bzip2 make gcc gcc-c++ libstdc++-static zlib-devel
-
-##### CentOS 6
-
-    yum install -y tar wget bzip2 make gcc gcc-c++ zlib-devel
-
-    # Add gcc 4.9 from developer tools v3:
-    yum install -y centos-release-scl
-    yum install -y devtoolset-3-gcc devtoolset-3-gcc-c++
-
-    # Prior to build configuration, set CC/CXX to gcc 4.9:
-    export CC=/opt/rh/devtoolset-3/root/usr/bin/gcc
-    export CXX=/opt/rh/devtoolset-3/root/usr/bin/g++
+    dnf install -y tar bzip2 cmake make gcc gcc-c++ python3 zlib-devel bzip2-devel xz-devel
 
 ### Build procedure
 
@@ -135,20 +114,20 @@ Example (building on 4 cores):
     ../manta-${MANTA_VERSION}.release_src/configure --jobs=4 --prefix=/path/to/install
     make -j4 install
 
-Note that there are two other dependencies: cmake and boost. These are different than the requirements discussed
-above, in that they can optionally be provided by the user. They will automatically be built from source if not
-detected. The minimum required versions of these tools for users planning to provide them to the build process are
+Note that there is one other dependency, boost, which can optionally be provided by the user. It will
+automatically be built from source if not detected. The minimum required version for users planning to provide
+it to the build process is
 
-* cmake 2.8.12+
 * boost 1.58.0+ (must include static libraries)
 
-...the build process will find an existing cmake version on the user's `PATH` and an existing boost installation
-indicated by the environment variable `BOOST_ROOT`.
+...the build process will find an existing boost installation indicated by the environment variable `BOOST_ROOT`.
 
-If not detected, then versions of cmake and boost will be built from source and installed to temporary locations under
+If not detected, then boost will be built from source and installed to a temporary location under
 the build directory automatically. This step can make installation more convenient, but does increase the time
-requiered for configuration. To accelerate this process the configuration step can be parallelized over multiple cores,
+required for configuration. To accelerate this process the configuration step can be parallelized over multiple cores,
 as demonstrated in the example above with the`--jobs=4` argument to configure.
+
+htslib and samtools (version 1.25) are always built from the copies bundled in the `redist` directory.
 
 To see more configure options, run:
 
@@ -166,7 +145,7 @@ To help verify a successful installation, Manta includes a small demo
 data set and test script. After completing the installation steps
 above, the demo can be run as follows:
 
-    python ${MANTA_INSTALL_PATH}/bin/runMantaWorkflowDemo.py
+    python3 ${MANTA_INSTALL_PATH}/bin/runMantaWorkflowDemo.py
 
 This script creates a `MantaDemoAnalysis` directory under the current
 working directory, runs Manta on a small demo dataset, and compares the

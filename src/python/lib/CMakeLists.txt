@@ -54,23 +54,22 @@ add_custom_target(
 
 if (PYTHONINTERP_FOUND)
     #
-    # compile all py to pyc for:
-    # (1) build-time error-checking (primarily)
-    # (2) faster run-time response (in theory??? -- I don't observe)
+    # byte-compile all staged python files as a build-time syntax check
+    # (the compiled files are not installed)
     #
     file(GLOB STAGED_PYTHON_FILES "${PYSTAGE_DIR}/*.py")
-    foreach(PYFILE ${STAGED_PYTHON_FILES})
-        list(APPEND STAGED_PYTHONC_FILES "${PYFILE}c")
-    endforeach()
+    set (PYLIB_COMPILE_STAMP "${CMAKE_CURRENT_BINARY_DIR}/pythonlib.compile.stamp")
 
     add_custom_command(
-        OUTPUT ${STAGED_PYTHONC_FILES}
-        COMMAND ${PYTHON_EXECUTABLE} -m compileall -q ${PYSTAGE_DIR}
-        COMMENT "Compiling python library source")
+        OUTPUT ${PYLIB_COMPILE_STAMP}
+        COMMAND ${PYTHON_EXECUTABLE} -m py_compile ${STAGED_PYTHON_FILES}
+        COMMAND ${CMAKE_COMMAND} -E touch "${PYLIB_COMPILE_STAMP}"
+        DEPENDS ${STAGED_PYTHON_FILES}
+        COMMENT "Checking python library source")
 
     set(THIS_PYTHONLIB_COMPILE "${THIS_PROJECT_NAME}_pythonlib_compile")
     add_custom_target(${THIS_PYTHONLIB_COMPILE} ALL
-        DEPENDS ${STAGED_PYTHONC_FILES}
+        DEPENDS ${PYLIB_COMPILE_STAMP}
         DEPENDS ${PY_BUILD_CONFIG_TARGET})
 endif ()
 
