@@ -359,6 +359,10 @@ def sortAllVcfs(self, taskPrefix="", dependencies=None) :
         # If it is True, commandline argument "-a" is passed on to sortBam.py to print out all vcf records
         if isCandidate:
             cmd += " -a"
+        else :
+            maxDuplicateAltMismatchFraction = getattr(self.params, "maxDuplicateAltMismatchFraction", None)
+            if maxDuplicateAltMismatchFraction is not None :
+                cmd += " --max-alt-mismatch-fraction %s" % (str(maxDuplicateAltMismatchFraction))
 
         # apply the ploidy filter to diploid variants
         if isDiploid:

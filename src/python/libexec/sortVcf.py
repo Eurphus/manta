@@ -124,6 +124,12 @@ def getOptions() :
     parser.add_option("-a", dest="isPrintAll", action="store_true", default=False,
                       help="print out all vcf records without filtering")
 
+    parser.add_option("--max-alt-mismatch-fraction", dest="maxAltMismatchFraction", type="float", default=0.,
+                      help="Treat two records at the same position as duplicates of one variant if their assembled alt alleles "
+                           "have the same length and differ at no more than this fraction of bases. The same variant can be "
+                           "assembled from two overlapping loci with a basecall difference between the two contigs. "
+                           "With the default of 0 the alt alleles must be identical. (default: %default)")
+
     (options,args) = parser.parse_args()
 
     if len(args) == 0 and not options.vcfListFile:
@@ -140,6 +146,33 @@ def getOptions() :
             raise Exception("Can't find input vcf file: " +vcfFile)
 
     return (options,args)
+
+
+
+def isSimilarAssembledAlt(alt1, alt2, maxMismatchFraction) :
+    """
+    return True if two alt alleles are assembled sequences of the same length which differ at no more than
+    the given fraction of bases
+
+    Symbolic and breakend alleles are never similar, and neither are alleles too short for a mismatch fraction to
+    separate one variant from two.
+    """
+    minAltSize = 50
+
+    if maxMismatchFraction <= 0 : return False
+    if len(alt1) != len(alt2) : return False
+    if len(alt1) < minAltSize : return False
+    for alt in (alt1, alt2) :
+        for c in "<>[]" :
+            if c in alt : return False
+
+    maxMismatchCount = int(len(alt1) * maxMismatchFraction)
+    mismatchCount = 0
+    for (c1,c2) in zip(alt1,alt2) :
+        if c1 == c2 : continue
+        mismatchCount += 1
+        if mismatchCount > maxMismatchCount : return False
+    return True
 
 
 
@@ -231,6 +264,9 @@ def main() :
 
         # special handling to find duplications when alt is the only difference:
         if rec1[3] != rec2[3]:
+            if isSimilarAssembledAlt(rec1[3], rec2[3], options.maxAltMismatchFraction) :
+                return True
+
             if rec1[3] != "<INS>" and rec2[3] != "<INS>":
                 return False
 
