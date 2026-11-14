@@ -98,6 +98,12 @@ struct GSCOptions {
 
   /// if true, turn off the filter of insignificant evidence signal
   bool skipEvidenceSignalFilter = false;
+
+  /// Set by the command line to turn off refineOpt.isMergeLargeInsertionContigs
+  bool isDisableInsertionContigMerge = false;
+
+  /// Set by the command line to turn off conservative range refinement in all DNA assemblers
+  bool isDisableContigRangeRefinement = false;
 };
 
 void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCOptions& opt);

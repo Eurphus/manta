@@ -26,6 +26,8 @@
 
 #include "SVCandidateAssemblyRefiner.hpp"
 
+#include <algorithm>
+#include <array>
 #include <iostream>
 #include <unordered_set>
 
@@ -1848,6 +1850,194 @@ void SVCandidateAssemblyRefiner::getJumpAssembly(
 #endif
 }
 
+/// \return true if \p seq is too repetitive to anchor the overlap of two contigs
+///
+/// The sequence is rejected if it uses fewer than three distinct bases, if a single base makes up more than 80%
+/// of it, or if it is (nearly) periodic with a period of up to six bases.
+static bool isLowComplexityOverlap(const std::string& seq)
+{
+  const unsigned seqSize(seq.size());
+  if (seqSize == 0) return true;
+
+  std::array<unsigned, 4> baseCounts = {{0, 0, 0, 0}};
+  for (const char base : seq) {
+    switch (base) {
+    case 'A':
+      baseCounts[0]++;
+      break;
+    case 'C':
+      baseCounts[1]++;
+      break;
+    case 'G':
+      baseCounts[2]++;
+      break;
+    case 'T':
+      baseCounts[3]++;
+      break;
+    default:
+      break;
+    }
+  }
+  unsigned distinctCount(0);
+  unsigned maxCount(0);
+  for (const unsigned count : baseCounts) {
+    if (count > 0) distinctCount++;
+    maxCount = std::max(maxCount, count);
+  }
+  if (distinctCount < 3) return true;
+  if ((maxCount * 5) > (seqSize * 4)) return true;
+
+  static const unsigned maxPeriod(6);
+  for (unsigned period(1); (period <= maxPeriod) && (period < seqSize); ++period) {
+    unsigned matchCount(0);
+    for (unsigned i(period); i < seqSize; ++i) {
+      if (seq[i] == seq[i - period]) matchCount++;
+    }
+    if ((matchCount * 10) >= ((seqSize - period) * 9)) return true;
+  }
+  return false;
+}
+
+/// Find the overlap between the end of \p leftSeq and the start of \p rightSeq
+///
+/// \param[in] maxOverlap The longest overlap to test. Used to restrict the overlap to the part of each contig
+/// which extends into the insertion.
+///
+/// \return The overlap length, or zero if there is no overlap of at least \p minOverlap bases, or if more than
+/// one overlap length is consistent with the two sequences. An ambiguous overlap means the insertion sequence
+/// is repetitive, in which case its length cannot be determined from the two sides.
+static unsigned getUniqueContigOverlap(
+    const std::string& leftSeq,
+    const std::string& rightSeq,
+    const unsigned     minOverlap,
+    const unsigned     maxOverlap,
+    const double       maxMismatchFrac)
+{
+  const unsigned leftSize(leftSeq.size());
+  const unsigned maxTestOverlap(
+      std::min(maxOverlap, std::min(leftSize, static_cast<unsigned>(rightSeq.size()))));
+
+  unsigned overlapCount(0);
+  unsigned foundOverlap(0);
+  for (unsigned overlap(minOverlap); overlap <= maxTestOverlap; ++overlap) {
+    const unsigned maxMismatchCount(static_cast<unsigned>(overlap * maxMismatchFrac));
+    const unsigned leftStart(leftSize - overlap);
+    unsigned       mismatchCount(0);
+    for (unsigned i(0); i < overlap; ++i) {
+      if (leftSeq[leftStart + i] != rightSeq[i]) {
+        mismatchCount++;
+        if (mismatchCount > maxMismatchCount) break;
+      }
+    }
+    if (mismatchCount > maxMismatchCount) continue;
+
+    overlapCount++;
+    foundOverlap = overlap;
+  }
+
+  if (overlapCount != 1) return 0;
+  if (isLowComplexityOverlap(rightSeq.substr(0, foundOverlap))) return 0;
+  return foundOverlap;
+}
+
+/// Join left-anchored and right-anchored large insertion contigs which overlap within the insertion
+///
+/// Each joined contig is appended to assemblyData.contigs. The other per-contig containers in \p assemblyData
+/// are not modified.
+///
+/// \return The number of contigs added
+static unsigned mergeLargeInsertionContigs(
+    const SVRefinerOptions&      refineOpt,
+    const std::vector<unsigned>& largeInsertionCandidateIndex,
+    SVCandidateAssemblyData&     assemblyData)
+{
+  // same limit as used to pair left and right contigs for an insertion of unknown size
+  static const int maxBreakDist(35);
+
+  // more than a couple of joined contigs at one locus would point to a problem rather than to more alleles
+  static const unsigned maxMergeCount(2);
+
+  unsigned mergeCount(0);
+
+  const unsigned candCount(largeInsertionCandidateIndex.size());
+  for (unsigned leftCandIndex(0); leftCandIndex < candCount; ++leftCandIndex) {
+    const unsigned           leftIndex(largeInsertionCandidateIndex[leftCandIndex]);
+    const LargeInsertionInfo leftInfo(assemblyData.largeInsertInfo[leftIndex]);
+    if (!leftInfo.isLeftCandidate) continue;
+
+    for (unsigned rightCandIndex(0); rightCandIndex < candCount; ++rightCandIndex) {
+      if (mergeCount >= maxMergeCount) return mergeCount;
+
+      const unsigned           rightIndex(largeInsertionCandidateIndex[rightCandIndex]);
+      const LargeInsertionInfo rightInfo(assemblyData.largeInsertInfo[rightIndex]);
+      if (!rightInfo.isRightCandidate) continue;
+
+      const int breakDist(std::abs(
+          (long int)(assemblyData.smallSVAlignments[leftIndex].align.beginPos + leftInfo.refOffset) -
+          (long int)(assemblyData.smallSVAlignments[rightIndex].align.beginPos + rightInfo.refOffset)));
+      if (breakDist > maxBreakDist) continue;
+
+      // copies are taken because assemblyData.contigs is extended below
+      const AssembledContig leftContig(assemblyData.contigs[leftIndex]);
+      const AssembledContig rightContig(assemblyData.contigs[rightIndex]);
+
+      // the overlap must stay inside the part of each contig which extends past its reference anchor
+      const unsigned leftSize(leftContig.seq.size());
+      if (leftInfo.contigOffset >= leftSize) continue;
+      const unsigned leftOverhangSize(leftSize - leftInfo.contigOffset);
+      const unsigned rightOverhangSize(rightInfo.contigOffset);
+
+      const unsigned overlap(getUniqueContigOverlap(
+          leftContig.seq,
+          rightContig.seq,
+          refineOpt.minInsertionContigOverlap,
+          std::min(leftOverhangSize, rightOverhangSize),
+          refineOpt.maxInsertionContigOverlapMismatchFrac));
+      if (overlap == 0) continue;
+
+      AssembledContig mergedContig;
+      mergedContig.seq           = leftContig.seq + rightContig.seq.substr(overlap);
+      mergedContig.seedReadCount = leftContig.seedReadCount + rightContig.seedReadCount;
+      mergedContig.supportReads  = leftContig.supportReads;
+      mergedContig.supportReads.insert(rightContig.supportReads.begin(), rightContig.supportReads.end());
+      for (const unsigned readIndex : leftContig.rejectReads) {
+        if (mergedContig.supportReads.count(readIndex) == 0) mergedContig.rejectReads.insert(readIndex);
+      }
+      for (const unsigned readIndex : rightContig.rejectReads) {
+        if (mergedContig.supportReads.count(readIndex) == 0) mergedContig.rejectReads.insert(readIndex);
+      }
+
+      const known_pos_range2& leftRange(leftContig.conservativeRange);
+      const known_pos_range2& rightRange(rightContig.conservativeRange);
+      if ((leftRange.end_pos() > leftRange.begin_pos()) && (rightRange.end_pos() > rightRange.begin_pos())) {
+        mergedContig.conservativeRange.set_range(
+            leftRange.begin_pos(), static_cast<pos_t>(leftSize - overlap) + rightRange.end_pos());
+      }
+
+#ifdef DEBUG_REFINER
+      log_os << __FUNCTION__ << ": joined large insertion contigs " << leftIndex << " and " << rightIndex
+             << " with overlap " << overlap << " into contig of size " << mergedContig.seq.size() << "\n";
+#endif
+
+      assemblyData.contigs.push_back(mergedContig);
+      mergeCount++;
+    }
+  }
+  return mergeCount;
+}
+
+/// \return true if two candidates from the same local assembly describe the same allele
+static bool isSameSmallSVAllele(const SVCandidate& sv1, const SVCandidate& sv2, const int tolerance)
+{
+  if (std::abs(sv1.bp1.interval.range.begin_pos() - sv2.bp1.interval.range.begin_pos()) > tolerance)
+    return false;
+  if (std::abs(sv1.bp2.interval.range.begin_pos() - sv2.bp2.interval.range.begin_pos()) > tolerance)
+    return false;
+  const int insertSizeDiff(
+      std::abs(static_cast<int>(sv1.insertSeq.size()) - static_cast<int>(sv2.insertSeq.size())));
+  return (insertSizeDiff <= tolerance);
+}
+
 /// Stores information associated with each contig to assist with contig rank and selection
 struct ContigScoringInfo {
   bool     isDefined   = false;
@@ -1958,7 +2148,12 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
 
   std::vector<unsigned> largeInsertionCandidateIndex;
 
-  for (unsigned contigIndex(0); contigIndex < contigCount; ++contigIndex) {
+  // every contig which passes small SV alignment QC, in the order evaluated
+  std::vector<ContigScoringInfo> qcContigs;
+
+  // Align one contig to the reference, then evaluate it as a source of small SV candidates and as one side of
+  // a large insertion
+  auto processContig = [&](const unsigned contigIndex) {
     const AssembledContig& contig(assemblyData.contigs[contigIndex]);
 
 #ifdef DEBUG_REFINER
@@ -2126,9 +2321,14 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
         contigInfo.isJumped    = alignment.isJumped;
       };
 
-      // keep the top two highest scoring QC'd candidate:
-      // TODO: we should keep all QC'd candidates for the small event case
-      // FIXME : prevents us from finding overlapping events, keep vector of high-scoring contigs?
+      {
+        ContigScoringInfo contigInfo;
+        refreshContigScoringInfo(contigInfo);
+        qcContigs.push_back(contigInfo);
+      }
+
+      // Track the top two highest scoring QC'd candidates to select the best contig. Further QC'd contigs can
+      // contribute additional alleles after the best contig has been processed, see below.
 
       // The current contig is selected if any of the following criteria is met:
       // (1) no contig is selected yet
@@ -2161,6 +2361,28 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
 #ifdef DEBUG_REFINER
         log_os << __FUNCTION__ << ": contigIndex: " << rank2Contig.index << " is the second high score\n";
 #endif
+      }
+    }
+  };
+
+  for (unsigned contigIndex(0); contigIndex < contigCount; ++contigIndex) {
+    processContig(contigIndex);
+  }
+
+  // Join the two sides of an insertion where their insertion sequences overlap, and evaluate each joined
+  // contig in the same way as the contigs produced by the assembler
+  if (isFindLargeInsertions && _opt.refineOpt.isMergeLargeInsertionContigs) {
+    const unsigned mergeCount(
+        mergeLargeInsertionContigs(_opt.refineOpt, largeInsertionCandidateIndex, assemblyData));
+    if (mergeCount > 0) {
+      const unsigned newContigCount(assemblyData.contigs.size());
+      assert(newContigCount == (contigCount + mergeCount));
+      assemblyData.smallSVAlignments.resize(newContigCount);
+      assemblyData.smallSVSegments.resize(newContigCount);
+      assemblyData.largeInsertInfo.resize(newContigCount);
+      assemblyData.extendedContigs.resize(newContigCount);
+      for (unsigned contigIndex(contigCount); contigIndex < newContigCount; ++contigIndex) {
+        processContig(contigIndex);
       }
     }
   }
@@ -2222,33 +2444,38 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
   // TODO:
   std::set<pos_t> insPos;
 
-  // finished QC, skip small deletions if no candidates have appeared:
-  if (rank1Contig.isDefined) {
-    assemblyData.bestAlignmentIndex = rank1Contig.index;
-#ifdef DEBUG_REFINER
-    log_os << __FUNCTION__ << ": highscoreid: " << rank1Contig.index
-           << " alignment: " << assemblyData.smallSVAlignments[rank1Contig.index];
-#endif
-
-    // process the alignment into information that's easily usable
-    // in the vcf output (ie. breakends in reference coordinates)
-
-    const AssembledContig& bestContig(assemblyData.contigs[assemblyData.bestAlignmentIndex]);
-    const SVCandidateAssemblyData::SmallAlignmentResultType& bestAlign(
-        assemblyData.smallSVAlignments[assemblyData.bestAlignmentIndex]);
+  // Convert the alignment of one contig into SV candidates in reference coordinates
+  //
+  // If isSecondaryContig is true, only candidates which differ from all those already found in this assembly
+  // are added.
+  auto addContigCandidates = [&](const unsigned contigIndex, const bool isSecondaryContig) {
+    const AssembledContig& contig(assemblyData.contigs[contigIndex]);
+    const SVCandidateAssemblyData::SmallAlignmentResultType& contigAlign(
+        assemblyData.smallSVAlignments[contigIndex]);
 
     const SVCandidateAssemblyData::CandidateSegmentSetType& candidateSegments(
-        assemblyData.smallSVSegments[assemblyData.bestAlignmentIndex]);
+        assemblyData.smallSVSegments[contigIndex]);
     unsigned segmentIndex = 0;
     for (const SVCandidateAssemblyData::CandidateSegmentType& segRange : candidateSegments) {
       // copy the low-res candidate sv and start customizing:
-      assemblyData.svs.push_back(sv);
-
-      SVCandidate& newSV(assemblyData.svs.back());
-      newSV.assemblyAlignIndex   = assemblyData.bestAlignmentIndex;
+      SVCandidate newSV(sv);
+      newSV.assemblyAlignIndex   = contigIndex;
       newSV.assemblySegmentIndex = segmentIndex;
-      setSmallCandSV(assemblyData.bp1ref, bestContig.seq, bestAlign.align, segRange, newSV, _opt);
+      setSmallCandSV(assemblyData.bp1ref, contig.seq, contigAlign.align, segRange, newSV, _opt);
       segmentIndex++;
+
+      if (isSecondaryContig) {
+        bool isNewAllele(true);
+        for (const SVCandidate& foundSV : assemblyData.svs) {
+          if (isSameSmallSVAllele(newSV, foundSV, _opt.refineOpt.sameAlleleTolerance)) {
+            isNewAllele = false;
+            break;
+          }
+        }
+        if (!isNewAllele) continue;
+      }
+
+      assemblyData.svs.push_back(newSV);
 
       // provide a weak filter to keep fully and partially
       // assembled duplicates of the same event from occurring:
@@ -2259,23 +2486,46 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
 #ifdef DEBUG_REFINER
       log_os << __FUNCTION__ << ": small refined sv: " << newSV;
 #endif
+    }
+  };
 
-#ifdef DEBUG_CONTIG
-      const int               contigSize = bestContig.seq.length();
-      const ALIGNPATH::path_t apathTillSvStart(
-          &bestAlign.align.apath[0], &bestAlign.align.apath[segRange.first]);
-      const ALIGNPATH::path_t apathTillSvEnd(
-          &bestAlign.align.apath[0], &bestAlign.align.apath[segRange.second + 1]);
-      const int leftSize  = apath_read_length(apathTillSvStart);
-      const int endPos    = apath_read_length(apathTillSvEnd);
-      const int rightSize = contigSize - apath_read_length(apathTillSvEnd);
-
-      log_os << __FUNCTION__ << ": contig has size " << contigSize << ": " << bestContig.seq << "\n";
-      log_os << __FUNCTION__ << ": left part has size " << leftSize << ": "
-             << bestContig.seq.substr(0, leftSize) << "\n";
-      log_os << __FUNCTION__ << ": right part has size " << rightSize << ": "
-             << bestContig.seq.substr(endPos, rightSize) << "\n";
+  // finished QC, skip small deletions if no candidates have appeared:
+  if (rank1Contig.isDefined) {
+    assemblyData.bestAlignmentIndex = rank1Contig.index;
+#ifdef DEBUG_REFINER
+    log_os << __FUNCTION__ << ": highscoreid: " << rank1Contig.index
+           << " alignment: " << assemblyData.smallSVAlignments[rank1Contig.index];
 #endif
+
+    // process the alignment into information that's easily usable
+    // in the vcf output (ie. breakends in reference coordinates)
+    addContigCandidates(rank1Contig.index, false);
+
+    // Search the remaining QC'd contigs for additional alleles at this locus, best scoring contigs first.
+    //
+    // The assembler only returns a contig if it is supported by reads which do not support any of the contigs
+    // returned before it, so a further contig with a different variant is evidence of a different haplotype.
+    if (_opt.refineOpt.maxSmallSVHaplotypeCount > 1) {
+      std::vector<ContigScoringInfo> secondaryContigs;
+      for (const ContigScoringInfo& contigInfo : qcContigs) {
+        if (contigInfo.index == rank1Contig.index) continue;
+        if (assemblyData.contigs[contigInfo.index].supportReads.size() <
+            _opt.refineOpt.minSecondaryHaplotypeSupportReads)
+          continue;
+        secondaryContigs.push_back(contigInfo);
+      }
+      std::stable_sort(
+          secondaryContigs.begin(),
+          secondaryContigs.end(),
+          [](const ContigScoringInfo& a, const ContigScoringInfo& b) { return (a.score > b.score); });
+
+      unsigned haplotypeCount(1);
+      for (const ContigScoringInfo& contigInfo : secondaryContigs) {
+        if (haplotypeCount >= _opt.refineOpt.maxSmallSVHaplotypeCount) break;
+        const unsigned svCountBefore(assemblyData.svs.size());
+        addContigCandidates(contigInfo.index, true);
+        if (assemblyData.svs.size() > svCountBefore) haplotypeCount++;
+      }
     }
   }
 

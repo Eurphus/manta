@@ -78,4 +78,31 @@ struct SVRefinerOptions {
 
   /// Scores used to check for low quality assembly contig alignments
   AlignmentScores<int> contigFilterScores;
+
+  /// Maximum number of contigs from one local (single locus) assembly which can contribute SV candidates.
+  ///
+  /// A value of 1 reproduces the v1.6.0 behavior, where only the single best contig alignment is used, so
+  /// that at most one alternate haplotype can be found at a locus. Higher values allow additional contigs to
+  /// add candidates which differ from those already found, such as the second allele of a compound
+  /// heterozygous site.
+  unsigned maxSmallSVHaplotypeCount = 2;
+
+  /// Minimum number of supporting reads for a contig to add candidates beyond those of the best contig
+  unsigned minSecondaryHaplotypeSupportReads = 2;
+
+  /// Two candidates from the same local assembly are treated as the same allele if their breakend positions
+  /// and insertion lengths all agree to within this many bases
+  int sameAlleleTolerance = 3;
+
+  /// If true, a left-anchored and a right-anchored large insertion contig are joined into one contig when the
+  /// insertion sequence at the end of one overlaps that at the start of the other. This yields a fully
+  /// assembled insertion where the assembler could not join the two sides itself because the overlap is
+  /// shorter than its minimum word length.
+  bool isMergeLargeInsertionContigs = true;
+
+  /// Minimum overlap required to join two large insertion contigs
+  unsigned minInsertionContigOverlap = 20;
+
+  /// Maximum mismatch fraction in the overlap used to join two large insertion contigs
+  double maxInsertionContigOverlapMismatchFrac = 0.05;
 };

@@ -1633,5 +1633,208 @@ BOOST_AUTO_TEST_CASE(test_ProcessLargeInsertion)
   BOOST_REQUIRE_EQUAL(candidateAssemblyData.svs[0].bp2.interval, GenomeInterval(0, 53, 55));
 }
 
+// Test the filter for sequence which is too repetitive to anchor the overlap between two contigs
+BOOST_AUTO_TEST_CASE(test_isLowComplexityOverlap)
+{
+  BOOST_REQUIRE(isLowComplexityOverlap(""));
+  // homopolymer
+  BOOST_REQUIRE(isLowComplexityOverlap("AAAAAAAAAAAAAAAAAAAAAAAA"));
+  // only two distinct bases
+  BOOST_REQUIRE(isLowComplexityOverlap("ACCAACACCCAAACACCACA"));
+  // one base makes up more than 80% of the sequence
+  BOOST_REQUIRE(isLowComplexityOverlap("AAAAAGAAAAAAAACAAAAAAAAAT"));
+  // short tandem repeats with period 2, 3 and 6
+  BOOST_REQUIRE(isLowComplexityOverlap("ACGACGACGACGACGACGACGACG"));
+  BOOST_REQUIRE(isLowComplexityOverlap("TTAGGGTTAGGGTTAGGGTTAGGGTTAGGG"));
+  // a single interruption does not rescue a repeat
+  BOOST_REQUIRE(isLowComplexityOverlap("ACGACGACGACGTCGACGACGACGACGACG"));
+
+  BOOST_REQUIRE(!isLowComplexityOverlap("GATTACAGCCTGAATCGTAC"));
+  BOOST_REQUIRE(!isLowComplexityOverlap("TGCAGTCAAGGCTTACGATCCGTAGCATTG"));
+}
+
+// Test the search for a single unambiguous overlap between the end of one contig and the start of another
+BOOST_AUTO_TEST_CASE(test_getUniqueContigOverlap)
+{
+  const std::string leftOnly("CCATGGTTAACGCGTATCGGACTTAGCA");
+  const std::string shared("GATTACAGCCTGAATCGTACTGGCA");
+  const std::string rightOnly("TTGACCGTAAGCTAGGCTAACCGTAT");
+  const std::string leftSeq(leftOnly + shared);
+  const std::string rightSeq(shared + rightOnly);
+  const unsigned    sharedSize(shared.size());
+
+  // exact overlap
+  BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftSeq, rightSeq, 20, 100, 0.05), sharedSize);
+
+  // no overlap in the opposite orientation
+  BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(rightSeq, leftSeq, 20, 100, 0.05), 0u);
+
+  // overlap is shorter than the minimum
+  BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftSeq, rightSeq, sharedSize + 1, 100, 0.05), 0u);
+
+  // overlap is longer than the part of the contigs which may be overlapped
+  BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftSeq, rightSeq, 20, sharedSize - 1, 0.05), 0u);
+
+  // a single mismatch is tolerated at a 5% mismatch rate in 25 bases, but not when no mismatches are allowed
+  {
+    std::string rightSeqMismatch(rightSeq);
+    rightSeqMismatch[10] = ((rightSeqMismatch[10] == 'A') ? 'C' : 'A');
+    BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftSeq, rightSeqMismatch, 20, 100, 0.05), sharedSize);
+    BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftSeq, rightSeqMismatch, 20, 100, 0.), 0u);
+  }
+
+  // more than one overlap length is consistent with a repetitive sequence, so the size of the joined sequence
+  // is unknown
+  {
+    const std::string repeatUnit("GATTACAGCCTGAATCGTACTGGCA");
+    const std::string leftRepeat(leftOnly + repeatUnit + repeatUnit);
+    const std::string rightRepeat(repeatUnit + repeatUnit + rightOnly);
+    BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftRepeat, rightRepeat, 20, 100, 0.05), 0u);
+  }
+
+  // a unique but low-complexity overlap is rejected
+  {
+    const std::string lowComplexity("ACACACACACACACACACACACAC");
+    const std::string leftLow(leftOnly + "G" + lowComplexity);
+    const std::string rightLow(lowComplexity + "T" + rightOnly);
+    BOOST_REQUIRE_EQUAL(getUniqueContigOverlap(leftLow, rightLow, 24, 24, 0.), 0u);
+  }
+}
+
+// Test that a left-anchored and a right-anchored large insertion contig are joined when they overlap inside of
+// the insertion, and not joined when their breakends are far apart or when the overlap would extend into the
+// reference anchor of either contig
+BOOST_AUTO_TEST_CASE(test_mergeLargeInsertionContigs)
+{
+  const std::string leftAnchor("CCATGGTTAACGCGTATCGGACTTAGCATCAGGTCAACGTTAGCCATGCA");
+  const std::string rightAnchor("TTGACCGTAAGCTAGGCTAACCGTATCGATGCAATTGCCGGATATCGGAC");
+  const std::string insertLeft("AGCTTGCATCCGATGTTACCAGGTCATGCA");
+  const std::string insertShared("GATTACAGCCTGAATCGTACTGGCA");
+  const std::string insertRight("CTGATCGGTACCATGGACTTGCAAGTCCTA");
+
+  SVRefinerOptions refineOpt;
+
+  auto getAssemblyData = [&](const pos_t rightBreakendShift) {
+    SVCandidateAssemblyData assemblyData;
+    assemblyData.contigs.resize(2);
+    assemblyData.smallSVAlignments.resize(2);
+    assemblyData.largeInsertInfo.resize(2);
+
+    // left-anchored contig: reference anchor followed by the first part of the insertion
+    assemblyData.contigs[0].seq = leftAnchor + insertLeft + insertShared;
+    assemblyData.contigs[0].supportReads.insert(1);
+    assemblyData.contigs[0].supportReads.insert(2);
+    assemblyData.contigs[0].rejectReads.insert(7);
+    assemblyData.contigs[0].seedReadCount = 4;
+    assemblyData.contigs[0].conservativeRange.set_range(5, 90);
+    assemblyData.smallSVAlignments[0].align.beginPos = 100;
+    assemblyData.largeInsertInfo[0].isLeftCandidate  = true;
+    assemblyData.largeInsertInfo[0].contigOffset     = leftAnchor.size();
+    assemblyData.largeInsertInfo[0].refOffset        = leftAnchor.size();
+
+    // right-anchored contig: the last part of the insertion followed by the reference anchor
+    assemblyData.contigs[1].seq = insertShared + insertRight + rightAnchor;
+    assemblyData.contigs[1].supportReads.insert(2);
+    assemblyData.contigs[1].supportReads.insert(7);
+    assemblyData.contigs[1].rejectReads.insert(9);
+    assemblyData.contigs[1].seedReadCount = 3;
+    assemblyData.contigs[1].conservativeRange.set_range(10, 95);
+    assemblyData.smallSVAlignments[1].align.beginPos = 100 + rightBreakendShift;
+    assemblyData.largeInsertInfo[1].isRightCandidate = true;
+    assemblyData.largeInsertInfo[1].contigOffset     = insertShared.size() + insertRight.size();
+    assemblyData.largeInsertInfo[1].refOffset        = leftAnchor.size();
+    return assemblyData;
+  };
+
+  // the two contigs are joined into a single contig spanning the whole insertion
+  {
+    SVCandidateAssemblyData assemblyData(getAssemblyData(0));
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {0, 1}, assemblyData), 1u);
+    BOOST_REQUIRE_EQUAL(assemblyData.contigs.size(), 3u);
+    const AssembledContig& merged(assemblyData.contigs[2]);
+    BOOST_REQUIRE_EQUAL(merged.seq, leftAnchor + insertLeft + insertShared + insertRight + rightAnchor);
+    BOOST_REQUIRE_EQUAL(merged.seedReadCount, 7u);
+
+    // support is the union of both contigs, and a read supporting either contig is not a rejected read
+    BOOST_REQUIRE_EQUAL(merged.supportReads.size(), 3u);
+    BOOST_REQUIRE_EQUAL(merged.supportReads.count(1), 1u);
+    BOOST_REQUIRE_EQUAL(merged.supportReads.count(2), 1u);
+    BOOST_REQUIRE_EQUAL(merged.supportReads.count(7), 1u);
+    BOOST_REQUIRE_EQUAL(merged.rejectReads.size(), 1u);
+    BOOST_REQUIRE_EQUAL(merged.rejectReads.count(9), 1u);
+
+    // conservative range runs from the left contig's range start to the right contig's range end, translated
+    // into merged contig coordinates
+    const pos_t rightContigShift(leftAnchor.size() + insertLeft.size());
+    BOOST_REQUIRE_EQUAL(merged.conservativeRange.begin_pos(), 5);
+    BOOST_REQUIRE_EQUAL(merged.conservativeRange.end_pos(), rightContigShift + 95);
+
+    // the per-contig containers are left for the caller to extend
+    BOOST_REQUIRE_EQUAL(assemblyData.smallSVAlignments.size(), 2u);
+    BOOST_REQUIRE_EQUAL(assemblyData.largeInsertInfo.size(), 2u);
+  }
+
+  // contigs with breakends which are too far apart do not describe the same insertion
+  {
+    SVCandidateAssemblyData assemblyData(getAssemblyData(100));
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {0, 1}, assemblyData), 0u);
+    BOOST_REQUIRE_EQUAL(assemblyData.contigs.size(), 2u);
+  }
+
+  // an overlap which would extend into the reference anchor of the left contig is not used
+  {
+    SVCandidateAssemblyData assemblyData(getAssemblyData(0));
+    assemblyData.largeInsertInfo[0].contigOffset = assemblyData.contigs[0].seq.size() - 10;
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {0, 1}, assemblyData), 0u);
+  }
+
+  // nothing is joined without one candidate of each kind
+  {
+    SVCandidateAssemblyData assemblyData(getAssemblyData(0));
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {0}, assemblyData), 0u);
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {1}, assemblyData), 0u);
+    BOOST_REQUIRE_EQUAL(mergeLargeInsertionContigs(refineOpt, {}, assemblyData), 0u);
+  }
+}
+
+// Test the comparison used to decide whether a second contig at a locus describes a new allele
+BOOST_AUTO_TEST_CASE(test_isSameSmallSVAllele)
+{
+  SVCandidate sv1;
+  sv1.bp1.interval = GenomeInterval(0, 1000, 1001);
+  sv1.bp2.interval = GenomeInterval(0, 1300, 1301);
+  sv1.insertSeq    = "ACGT";
+
+  // identical allele
+  {
+    SVCandidate sv2(sv1);
+    BOOST_REQUIRE(isSameSmallSVAllele(sv1, sv2, 3));
+  }
+
+  // breakends shifted within tolerance, as expected for the same allele assembled with different basecall
+  // errors or reported at a different position within its breakend homology
+  {
+    SVCandidate sv2(sv1);
+    sv2.bp1.interval = GenomeInterval(0, 1002, 1003);
+    sv2.bp2.interval = GenomeInterval(0, 1302, 1303);
+    BOOST_REQUIRE(isSameSmallSVAllele(sv1, sv2, 3));
+    BOOST_REQUIRE(!isSameSmallSVAllele(sv1, sv2, 1));
+  }
+
+  // an overlapping deletion of a different size is a different allele
+  {
+    SVCandidate sv2(sv1);
+    sv2.bp2.interval = GenomeInterval(0, 1250, 1251);
+    BOOST_REQUIRE(!isSameSmallSVAllele(sv1, sv2, 3));
+  }
+
+  // same breakends with a different inserted sequence length is a different allele
+  {
+    SVCandidate sv2(sv1);
+    sv2.insertSeq = "ACGTACGTACGTACGTACGTACGT";
+    BOOST_REQUIRE(!isSameSmallSVAllele(sv1, sv2, 3));
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE_END()

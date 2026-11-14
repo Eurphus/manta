@@ -108,6 +108,12 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
    "Output assembled contig sequences in VCF files.")
   ("skip-evidence-signal-filter", po::value(&opt.skipEvidenceSignalFilter)->zero_tokens(),
    "Turn off the filter on candidates of insignificant evidence signal.")
+  ("max-local-haplotypes", po::value(&opt.refineOpt.maxSmallSVHaplotypeCount)->default_value(opt.refineOpt.maxSmallSVHaplotypeCount),
+   "Maximum number of contigs from one local assembly which can contribute SV candidates. Set to 1 to use only the best contig (v1.6.0 behavior)")
+  ("no-insertion-contig-merge", po::value(&opt.isDisableInsertionContigMerge)->zero_tokens(),
+   "Do not join the left and right breakend contigs of a large insertion through their overlap (v1.6.0 behavior)")
+  ("no-contig-range-refinement", po::value(&opt.isDisableContigRangeRefinement)->zero_tokens(),
+   "Do not recompute the multi-read supported range of assembled contigs with tolerance for basecall errors (v1.6.0 behavior)")
   ;
   // clang-format on
 
@@ -161,6 +167,20 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   }
 
   if (!errorMsg.empty()) usage(log_os, prog, visible, errorMsg.c_str());
+
+  if (opt.refineOpt.maxSmallSVHaplotypeCount < 1) {
+    usage(log_os, prog, visible, "max-local-haplotypes must be at least 1");
+  }
+
+  // apply switches which turn off behaviors that are enabled by default:
+  if (opt.isDisableInsertionContigMerge) {
+    opt.refineOpt.isMergeLargeInsertionContigs = false;
+  }
+  if (opt.isDisableContigRangeRefinement) {
+    opt.refineOpt.smallSVAssembleOpt.isRefineConservativeRange     = false;
+    opt.refineOpt.spanningAssembleOpt.isRefineConservativeRange    = false;
+    opt.refineOpt.RNAspanningAssembleOpt.isRefineConservativeRange = false;
+  }
 
   checkStandardizeUsageFile(log_os, prog, visible, opt.graphFilename, "SV locus graph");
   checkStandardizeUsageFile(log_os, prog, visible, opt.referenceFilename, "reference fasta");
