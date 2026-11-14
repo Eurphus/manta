@@ -235,6 +235,15 @@ private:
       unsigned&         maxDepth,
       float&            MQ0Frac);
 
+  /// \return Mean read depth of one alignment file over a set of regions on one chromosome, or a negative value
+  /// if the regions are empty
+  double getMeanRegionDepth(
+      const unsigned bamIndex, const int32_t tid, const std::vector<known_pos_range2>& regions);
+
+  /// For a deletion or tandem duplication large enough for read depth to be informative, estimate the depth
+  /// within the variant and in its flanking regions for each sample
+  void getSVDepthSupport(const SVCandidate& sv, SVScoreInfo& baseInfo);
+
   /// Apply all scoring models relevant to this event:
   ///
   /// \param junctionData one element describing each junction of an event, for normal (single-junction)

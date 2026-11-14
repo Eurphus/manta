@@ -530,6 +530,8 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
                 hygenCmd.append("--no-tandem-dup-model")
             if self.params.filterUncertainZygosity :
                 hygenCmd.append("--filter-uncertain-zygosity")
+            if not self.params.reportDepthRatio :
+                hygenCmd.append("--no-depth-ratio")
             # tumor/normal mode
             if isTumorNormal :
                 hygenCmd.extend(["--somatic-output-file", self.somaticVcfPaths[-1]])
@@ -772,6 +774,7 @@ class MantaWorkflow(WorkflowRunner) :
         safeSetBool(self.params,"enableContigConservativeRangeRefinement", default=True)
         safeSetBool(self.params,"enableTandemDupModel", default=True)
         safeSetBool(self.params,"filterUncertainZygosity")
+        safeSetBool(self.params,"reportDepthRatio", default=True)
 
         # Use RNA option for minCandidate size
         if self.params.isRNA:

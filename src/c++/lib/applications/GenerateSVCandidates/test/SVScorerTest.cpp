@@ -147,6 +147,82 @@ BOOST_AUTO_TEST_CASE(test_addReadToDepthEst)
   }
 }
 
+// Test the number of reference bases of a region covered by the aligned segments of a read
+BOOST_AUTO_TEST_CASE(test_getAlignmentRangeOverlap)
+{
+  ALIGNPATH::path_t apath;
+
+  // simple alignment covering [100,150)
+  cigar_to_apath("50M", apath);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(0, 1000)), 50u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(120, 130)), 10u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(140, 1000)), 10u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(0, 110)), 10u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(150, 200)), 0u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(0, 100)), 0u);
+
+  // soft-clipped and inserted bases are not on the reference, deleted bases are not covered by the read:
+  // 10S, match [100,120), 5I, match [120,130), 20D, match [150,160), 10S
+  cigar_to_apath("10S20M5I10M20D10M10S", apath);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(0, 1000)), 40u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(125, 155)), 10u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(130, 150)), 0u);
+  BOOST_REQUIRE_EQUAL(getAlignmentRangeOverlap(apath, 100, known_pos_range2(90, 100)), 0u);
+}
+
+// Test the choice of regions used to estimate the depth within and next to a variant
+BOOST_AUTO_TEST_CASE(test_getSVDepthRegions)
+{
+  // A variant of 1000 bases: the margin left out at each end is the smaller of 100 bases and a tenth of the
+  // variant, and each flank is 1000 bases at a distance of 100 bases
+  {
+    const SVDepthRegions regions(getSVDepthRegions(10000, 11000, 1000000));
+    BOOST_REQUIRE_EQUAL(regions.variant.size(), 1u);
+    BOOST_REQUIRE_EQUAL(regions.variant[0], known_pos_range2(10100, 10900));
+    BOOST_REQUIRE_EQUAL(regions.flank.size(), 2u);
+    BOOST_REQUIRE_EQUAL(regions.flank[0], known_pos_range2(8900, 9900));
+    BOOST_REQUIRE_EQUAL(regions.flank[1], known_pos_range2(11100, 12100));
+  }
+
+  // a smaller variant has a smaller margin
+  {
+    const SVDepthRegions regions(getSVDepthRegions(10000, 10500, 1000000));
+    BOOST_REQUIRE_EQUAL(regions.variant.size(), 1u);
+    BOOST_REQUIRE_EQUAL(regions.variant[0], known_pos_range2(10050, 10450));
+  }
+
+  // a large variant is sampled in 20 evenly spaced windows of 1000 bases from the first to the last position
+  // of its interior, so that the cost of the estimate does not depend on the variant size
+  {
+    const SVDepthRegions regions(getSVDepthRegions(100000, 600000, 1000000));
+    BOOST_REQUIRE_EQUAL(regions.variant.size(), 20u);
+    BOOST_REQUIRE_EQUAL(regions.variant.front().begin_pos(), 100100);
+    BOOST_REQUIRE_EQUAL(regions.variant.back().end_pos(), 599900);
+    for (unsigned i(0); i < regions.variant.size(); ++i) {
+      BOOST_REQUIRE_EQUAL(regions.variant[i].size(), 1000u);
+      if (i > 0) BOOST_REQUIRE(regions.variant[i].begin_pos() >= regions.variant[i - 1].end_pos());
+    }
+    BOOST_REQUIRE_EQUAL(regions.flank.size(), 2u);
+  }
+
+  // flanks are cut off at the ends of the chromosome, and left out when too little remains
+  {
+    const SVDepthRegions regions(getSVDepthRegions(600, 1600, 1900));
+    BOOST_REQUIRE_EQUAL(regions.flank.size(), 2u);
+    BOOST_REQUIRE_EQUAL(regions.flank[0], known_pos_range2(0, 500));
+    BOOST_REQUIRE_EQUAL(regions.flank[1], known_pos_range2(1700, 1900));
+  }
+  {
+    const SVDepthRegions regions(getSVDepthRegions(200, 1200, 1400));
+    BOOST_REQUIRE_EQUAL(regions.variant.size(), 1u);
+    BOOST_REQUIRE(regions.flank.empty());
+  }
+
+  // no regions for an empty or out of range variant
+  BOOST_REQUIRE(getSVDepthRegions(1000, 1000, 100000).variant.empty());
+  BOOST_REQUIRE(getSVDepthRegions(1000, 2000, 1500).variant.empty());
+}
+
 // Test the following simple utility mathematics
 // lnToProb(a, b): a = exp(a-b)/(1 + exp(a-b))
 //                 b = 1/(1 + exp(a-b))

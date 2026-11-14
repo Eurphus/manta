@@ -175,6 +175,165 @@ void SVScorer::getBreakendMaxMappedDepthAndMQ0(
   }
 }
 
+/// \return The number of reference bases in \p range which are covered by an aligned (match) segment of a
+/// read alignment starting at \p readBeginPos
+static unsigned getAlignmentRangeOverlap(
+    const ALIGNPATH::path_t& apath, const pos_t readBeginPos, const known_pos_range2& range)
+{
+  using namespace ALIGNPATH;
+
+  pos_t overlap(0);
+  pos_t refPos(readBeginPos);
+  for (const path_segment& ps : apath) {
+    if (refPos >= range.end_pos()) break;
+    const pos_t segmentEndPos(refPos + static_cast<pos_t>(ps.length));
+    if (is_segment_align_match(ps.type)) {
+      const pos_t overlapBegin(std::max(refPos, range.begin_pos()));
+      const pos_t overlapEnd(std::min(segmentEndPos, range.end_pos()));
+      if (overlapEnd > overlapBegin) overlap += (overlapEnd - overlapBegin);
+    }
+    if (is_segment_type_ref_length(ps.type)) refPos = segmentEndPos;
+  }
+  return overlap;
+}
+
+/// Regions used to compare the read depth within a variant to the depth next to it
+struct SVDepthRegions {
+  std::vector<known_pos_range2> variant;
+  std::vector<known_pos_range2> flank;
+};
+
+/// Choose the regions used to estimate the read depth within and next to a deletion or duplication
+///
+/// The variant depth is taken from the whole interval between the breakends, leaving out a margin at each end
+/// where reads are clipped or split at the breakend. For a large variant a fixed number of evenly spaced
+/// windows is used instead of the whole interval, which bounds the cost of the estimate for any variant size.
+/// The flanking depth is taken from one region on each side of the variant, separated from it by a gap.
+///
+/// \param[in] svBeginPos First reference position within the variant
+///
+/// \param[in] svEndPos Position following the last reference position within the variant
+///
+static SVDepthRegions getSVDepthRegions(const pos_t svBeginPos, const pos_t svEndPos, const pos_t chromSize)
+{
+  static const pos_t flankSize(1000);
+  static const pos_t minFlankSize(200);
+  static const pos_t flankGap(100);
+  static const pos_t maxEdgeTrim(100);
+  static const pos_t maxFullScanSize(20000);
+  static const pos_t sampleWindowSize(1000);
+  static const pos_t sampleWindowCount(20);
+
+  SVDepthRegions regions;
+
+  const pos_t svSize(svEndPos - svBeginPos);
+  if ((svSize <= 0) || (svBeginPos < 0) || (svEndPos > chromSize)) return regions;
+
+  const pos_t edgeTrim(std::min(maxEdgeTrim, svSize / 10));
+  const pos_t innerBeginPos(svBeginPos + edgeTrim);
+  const pos_t innerEndPos(svEndPos - edgeTrim);
+  const pos_t innerSize(innerEndPos - innerBeginPos);
+  if (innerSize <= 0) return regions;
+
+  if (innerSize <= maxFullScanSize) {
+    regions.variant.emplace_back(innerBeginPos, innerEndPos);
+  } else {
+    const double windowStep(
+        static_cast<double>(innerSize - sampleWindowSize) / static_cast<double>(sampleWindowCount - 1));
+    for (pos_t windowIndex(0); windowIndex < sampleWindowCount; ++windowIndex) {
+      const pos_t windowBeginPos(innerBeginPos + static_cast<pos_t>(windowIndex * windowStep));
+      regions.variant.emplace_back(windowBeginPos, windowBeginPos + sampleWindowSize);
+    }
+  }
+
+  {
+    const pos_t flankEndPos(svBeginPos - flankGap);
+    const pos_t flankBeginPos(std::max(0, flankEndPos - flankSize));
+    if ((flankEndPos - flankBeginPos) >= minFlankSize) regions.flank.emplace_back(flankBeginPos, flankEndPos);
+  }
+  {
+    const pos_t flankBeginPos(svEndPos + flankGap);
+    const pos_t flankEndPos(std::min(chromSize, flankBeginPos + flankSize));
+    if ((flankEndPos - flankBeginPos) >= minFlankSize) regions.flank.emplace_back(flankBeginPos, flankEndPos);
+  }
+
+  return regions;
+}
+
+double SVScorer::getMeanRegionDepth(
+    const unsigned bamIndex, const int32_t tid, const std::vector<known_pos_range2>& regions)
+{
+  double alignedBaseCount(0);
+  double regionBaseCount(0);
+
+  bam_streamer&     bamStream(*_bamStreams[bamIndex]);
+  ALIGNPATH::path_t apath;
+  for (const known_pos_range2& region : regions) {
+    if (region.end_pos() <= region.begin_pos()) continue;
+    regionBaseCount += (region.end_pos() - region.begin_pos());
+
+    bamStream.resetRegion(tid, region.begin_pos(), region.end_pos());
+    while (bamStream.next()) {
+      const bam_record& bamRead(*(bamStream.get_record_ptr()));
+
+      const pos_t refPos(bamRead.pos() - 1);
+      if (refPos >= region.end_pos()) break;
+
+      if (isReadUnmappedOrFilteredCore(bamRead)) continue;
+
+      bam_cigar_to_apath(bamRead.raw_cigar(), bamRead.n_cigar(), apath);
+      alignedBaseCount += getAlignmentRangeOverlap(apath, refPos, region);
+    }
+  }
+
+  if (regionBaseCount <= 0) return -1;
+  return (alignedBaseCount / regionBaseCount);
+}
+
+void SVScorer::getSVDepthSupport(const SVCandidate& sv, SVScoreInfo& baseInfo)
+{
+  if (sv.bp1.interval.tid != sv.bp2.interval.tid) return;
+
+  const EXTENDED_SV_TYPE::index_t svType(getExtendedSVType(sv));
+  if (!((svType == EXTENDED_SV_TYPE::DELETE) || (svType == EXTENDED_SV_TYPE::TANDUP))) return;
+
+  if (isSVBelowMinSize(sv, _diploidOpt.minDepthRatioSVSize)) return;
+
+  // A region at many times the expected depth is not a place where a depth ratio means much, and is expensive
+  // to scan. Evidence enumeration is cut off for the same reason.
+  const int32_t tid(sv.bp1.interval.tid);
+  if (_dFilterDiploid.isMaxDepthFilter()) {
+    const double maxDepth(_dFilterDiploid.maxDepth(tid));
+    if ((baseInfo.bp1MaxDepth > maxDepth) || (baseInfo.bp2MaxDepth > maxDepth)) return;
+  }
+
+  // the variant covers the reference positions following the first breakend, up to and including that of the
+  // second breakend:
+  const pos_t bp1Pos(sv.bp1.interval.range.center_pos());
+  const pos_t bp2Pos(sv.bp2.interval.range.center_pos());
+  const pos_t svBeginPos(std::min(bp1Pos, bp2Pos) + 1);
+  const pos_t svEndPos(std::max(bp1Pos, bp2Pos) + 1);
+
+  assert(tid < static_cast<int32_t>(_header.chrom_data.size()));
+  const pos_t          chromSize(_header.chrom_data[tid].length);
+  const SVDepthRegions regions(getSVDepthRegions(svBeginPos, svEndPos, chromSize));
+  if (regions.variant.empty() || regions.flank.empty()) return;
+
+  const unsigned bamCount(_bamStreams.size());
+  assert(baseInfo.samples.size() == bamCount);
+  for (unsigned bamIndex(0); bamIndex < bamCount; ++bamIndex) {
+    const double flankDepth(getMeanRegionDepth(bamIndex, tid, regions.flank));
+    if (flankDepth <= 0) continue;
+    const double variantDepth(getMeanRegionDepth(bamIndex, tid, regions.variant));
+    if (variantDepth < 0) continue;
+
+    SVSampleInfo& sampleInfo(baseInfo.samples[bamIndex]);
+    sampleInfo.isDepthEstimated = true;
+    sampleInfo.variantDepth     = static_cast<float>(variantDepth);
+    sampleInfo.flankDepth       = static_cast<float>(flankDepth);
+  }
+}
+
 /// Convert log likelihoods from a 2 state space to probabilities:
 static void lnToProb(float& lower, float& higher)
 {
@@ -1930,6 +2089,10 @@ void SVScorer::scoreSV(
       SVEvidence& evidence(junctionEvidence[junctionIndex]);
       getSVSupportingEvidence(
           svData, assemblyData, isTumorOnly, sv, svId, modelScoreInfo.base, evidence, svEvidenceWriterData);
+
+      if (_diploidOpt.isReportDepthRatio) {
+        getSVDepthSupport(sv, modelScoreInfo.base);
+      }
 
       // score components specific to diploid-germline model:
       float& spanningPairWeight(junctionSpanningPairWeight[junctionIndex]);

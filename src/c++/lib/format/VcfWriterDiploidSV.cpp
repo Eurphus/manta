@@ -38,6 +38,10 @@ void VcfWriterDiploidSV::addHeaderFormat(std::ostream& os) const
   os << "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification\">\n";
   os << "##FORMAT=<ID=PR,Number=.,Type=Integer,Description=\"Spanning paired-read support for the ref and alt alleles in the order listed\">\n";
   os << "##FORMAT=<ID=SR,Number=.,Type=Integer,Description=\"Split reads for the ref and alt alleles in the order listed, for reads where P(allele|read)>0.999\">\n";
+  if (_diploidOpt.isReportDepthRatio) {
+    os << "##FORMAT=<ID=RDR,Number=1,Type=Float,Description=\"Mean read depth within the variant divided by the mean read depth of the regions flanking it, for deletions and tandem duplications of at least "
+       << _diploidOpt.minDepthRatioSVSize << " bases. Expected near 0.5/0 for a heterozygous/homozygous deletion and near 1.5/2 for a heterozygous/homozygous duplication. Not used in any score or filter\">\n";
+  }
 }
 
 void VcfWriterDiploidSV::addHeaderFilters(std::ostream& os) const
@@ -178,15 +182,30 @@ void VcfWriterDiploidSV::modifySample(
   }
   sampletags.push_back(std::make_pair("PR", values));
 
-  if (sv.isImprecise()) return;
-
-  for (unsigned diploidSampleIndex(0); diploidSampleIndex < diploidSampleCount; ++diploidSampleIndex) {
-    const SVSampleInfo& sampleInfo(baseScoringInfo.samples[diploidSampleIndex]);
-    values[diploidSampleIndex] =
-        str(boost::format("%i,%i") % sampleInfo.ref.confidentSplitReadCount %
-            sampleInfo.alt.confidentSplitReadCount);
+  if (!sv.isImprecise()) {
+    for (unsigned diploidSampleIndex(0); diploidSampleIndex < diploidSampleCount; ++diploidSampleIndex) {
+      const SVSampleInfo& sampleInfo(baseScoringInfo.samples[diploidSampleIndex]);
+      values[diploidSampleIndex] =
+          str(boost::format("%i,%i") % sampleInfo.ref.confidentSplitReadCount %
+              sampleInfo.alt.confidentSplitReadCount);
+    }
+    sampletags.push_back(std::make_pair("SR", values));
   }
-  sampletags.push_back(std::make_pair("SR", values));
+
+  // the depth ratio is only added to records where it is available for at least one sample
+  {
+    bool isAnyDepthEstimated(false);
+    for (unsigned diploidSampleIndex(0); diploidSampleIndex < diploidSampleCount; ++diploidSampleIndex) {
+      const SVSampleInfo& sampleInfo(baseScoringInfo.samples[diploidSampleIndex]);
+      if (sampleInfo.isDepthEstimated) {
+        isAnyDepthEstimated            = true;
+        values[diploidSampleIndex] = str(boost::format("%.2f") % sampleInfo.getDepthRatio());
+      } else {
+        values[diploidSampleIndex] = ".";
+      }
+    }
+    if (isAnyDepthEstimated) sampletags.push_back(std::make_pair("RDR", values));
+  }
 }
 
 void VcfWriterDiploidSV::writeSV(

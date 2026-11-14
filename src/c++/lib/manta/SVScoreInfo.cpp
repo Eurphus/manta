@@ -206,6 +206,9 @@ std::ostream& operator<<(std::ostream& os, const SVSampleInfo& si)
 {
   os << "SVSampleInfo:\n"
      << "Alt Allele " << si.alt << "Ref Allele " << si.ref;
+  if (si.isDepthEstimated) {
+    os << "variantDepth: " << si.variantDepth << " flankDepth: " << si.flankDepth << "\n";
+  }
   return os;
 }
 

@@ -184,6 +184,9 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   if (opt.diploidOpt.isDisableTandemDupModel) {
     opt.diploidOpt.isTandemDupModel = false;
   }
+  if (opt.diploidOpt.isDisableDepthRatio) {
+    opt.diploidOpt.isReportDepthRatio = false;
+  }
 
   checkStandardizeUsageFile(log_os, prog, visible, opt.graphFilename, "SV locus graph");
   checkStandardizeUsageFile(log_os, prog, visible, opt.referenceFilename, "reference fasta");

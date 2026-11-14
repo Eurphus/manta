@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <iosfwd>
 #include <string>
 
@@ -130,10 +131,30 @@ struct SVSampleInfo {
   {
     alt.clear();
     ref.clear();
+    isDepthEstimated = false;
+    variantDepth     = 0;
+    flankDepth       = 0;
+  }
+
+  /// \return Mean read depth within the variant divided by the mean read depth of its flanking regions
+  float getDepthRatio() const
+  {
+    assert(isDepthEstimated && (flankDepth > 0));
+    return (variantDepth / flankDepth);
   }
 
   SVSampleAlleleInfo alt;
   SVSampleAlleleInfo ref;
+
+  /// True if the read depth within and next to the variant has been estimated. This is done for deletions and
+  /// tandem duplications large enough for the depth to be informative, when the flanking depth is non-zero.
+  bool isDepthEstimated = false;
+
+  /// Mean read depth within the variant
+  float variantDepth = 0;
+
+  /// Mean read depth in the regions flanking the variant
+  float flankDepth = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const SVSampleInfo& si);

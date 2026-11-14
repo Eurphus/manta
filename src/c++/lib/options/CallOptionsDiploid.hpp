@@ -79,6 +79,21 @@ struct CallOptionsDiploid {
   /// Set by the command line to turn off isTandemDupModel
   bool isDisableTandemDupModel = false;
 
+  /// If true, the read depth within deletions and tandem duplications is reported relative to the depth of
+  /// their flanking regions, for each sample (FORMAT/RDR).
+  ///
+  /// The split and paired read evidence used to call a variant says nothing about the amount of sequence
+  /// between its breakends. A real deletion or duplication also changes the read depth between them, so this
+  /// value is an independent check on the call. It is reported only, and has no influence on any score or
+  /// filter.
+  bool isReportDepthRatio = true;
+
+  /// Set by the command line to turn off isReportDepthRatio
+  bool isDisableDepthRatio = false;
+
+  /// Smallest deletion or tandem duplication for which the depth ratio is reported
+  unsigned minDepthRatioSVSize = 500;
+
   /// If false, a variant is not filtered at the record level when its only confident sample fails the minimum
   /// genotype quality filter because the sample's zygosity is uncertain.
   ///

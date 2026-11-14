@@ -35,6 +35,10 @@ boost::program_options::options_description getOptionsDescription(CallOptionsDip
    "minimum genotype quality score below which samples are filtered for a variant in the germline output vcf")
   ("no-tandem-dup-model", po::value(&opt.isDisableTandemDupModel)->zero_tokens(),
    "Score the evidence for tandem duplications exactly as for all other variant types (v1.6.0 behavior). By default the germline scoring of a tandem duplication accounts for the reference junctions which remain on a haplotype carrying it")
+  ("no-depth-ratio", po::value(&opt.isDisableDepthRatio)->zero_tokens(),
+   "Do not report the read depth within deletions and tandem duplications relative to their flanking regions (FORMAT/RDR)")
+  ("min-depth-ratio-sv-size", po::value(&opt.minDepthRatioSVSize)->default_value(opt.minDepthRatioSVSize),
+   "Smallest deletion or tandem duplication for which the depth ratio is reported")
   ("filter-uncertain-zygosity", po::value(&opt.isFilterUncertainZygosity)->zero_tokens(),
    "Apply the record level sample filter to a variant if its only non-reference samples have low genotype quality, even if the low quality is due to uncertain zygosity and not to an uncertain presence of the variant (v1.6.0 behavior)")
   ;
