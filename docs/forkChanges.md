@@ -77,6 +77,10 @@ shared code paths for no change in output: storage for reads below the minimum m
 candidate data, the second (lower) mapping quality tier of evidence counting, and the read scanner option
 `--ignore-anom-proper-pair`, which nothing sets any more.
 
+Not updated: [the methods document](methods/primary) still describes the original method with its somatic
+model, the [changelog](../CHANGELOG.md) is upstream history, and the developer scripts in `scratch/util`
+which post-process somatic VCFs are as they were.
+
 ## Build and runtime
 
 * The workflow and all scripts run on Python 3 (3.6 or later). Python 2 is no longer supported. The bundled
