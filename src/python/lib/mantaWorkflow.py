@@ -571,6 +571,9 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
         if self.params.useOverlapPairEvidence:
             hygenCmd.append("--use-overlapping-pair")
 
+        if not self.params.enableEvidenceSignalFilter :
+            hygenCmd.append("--skip-evidence-signal-filter")
+
         if self.params.isRNA :
             hygenCmd.append("--rna")
             if self.params.isUnstrandedRNA :
@@ -770,6 +773,7 @@ class MantaWorkflow(WorkflowRunner) :
         safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInGermlineCallingModes")
         safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInCancerCallingModes")
         safeSetBool(self.params,"useOverlapPairEvidence")
+        safeSetBool(self.params,"enableEvidenceSignalFilter", default=True)
         safeSetBool(self.params,"enableInsertionContigMerge", default=True)
         safeSetBool(self.params,"enableContigConservativeRangeRefinement", default=True)
         safeSetBool(self.params,"enableTandemDupModel", default=True)
