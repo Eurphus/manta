@@ -23,17 +23,19 @@
 ##
 ################################################################################
 
-set(FA_FILE "Homo_sapiens_assembly19.COST16011_region.fa")
-set(FA_ARCHIVE_FILE ${CMAKE_CURRENT_SOURCE_DIR}/${FA_FILE}.tar.bz2)
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E tar xjf ${FA_ARCHIVE_FILE}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    )
+set(FA_FILES "Homo_sapiens_assembly19.COST16011_region.fa" "SimulatedGermline.chr21_region.fa")
 
 file (GLOB DATA_LIST *)
-list (REMOVE_ITEM DATA_LIST ${FA_ARCHIVE_FILE})
 list (REMOVE_ITEM DATA_LIST ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
-list (APPEND DATA_LIST ${CMAKE_CURRENT_BINARY_DIR}/${FA_FILE})
+
+foreach (FA_FILE ${FA_FILES})
+    set(FA_ARCHIVE_FILE ${CMAKE_CURRENT_SOURCE_DIR}/${FA_FILE}.tar.bz2)
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xjf ${FA_ARCHIVE_FILE}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+    list (REMOVE_ITEM DATA_LIST ${FA_ARCHIVE_FILE})
+    list (APPEND DATA_LIST ${CMAKE_CURRENT_BINARY_DIR}/${FA_FILE})
+endforeach ()
 
 install(FILES ${DATA_LIST} DESTINATION ${THIS_MANTADEMODIR}/data)
-

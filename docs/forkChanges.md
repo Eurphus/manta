@@ -205,8 +205,9 @@ What has been checked:
 
 * All unit tests pass, including tests added for each change.
 * On branch `gpl-main`, the bundled demo (HCC1954 tumor/normal region) reproduces its expected somatic calls
-  with the default settings. On this branch the demo is a different test, see
-  [the demo README](../src/demo/README.md).
+  with the default settings. On this branch the demo is a different test: a simulated germline sample with
+  six known variants, and the same real reads analyzed as two germline samples, for which no germline call
+  is expected. See [the demo README](../src/demo/README.md).
 * Germline output is identical before and after the removal of the other calling modes, see
   [germline only](#germline-only).
 * With the seven switches above, benchmark output is identical to a build of the unmodified methods.

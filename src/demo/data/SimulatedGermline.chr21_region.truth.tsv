@@ -1,0 +1,7 @@
+#chrom	pos0	end0	type	svlen	genotype	hapMask	group	class
+chr21	21343	21343	INS	44	0|1	2	site0000	tiny_indel
+chr21	26392	26392	INS	300	0|1	2	site0001	ins_medium
+chr21	32003	33407	DEL	1404	1|1	3	site0002	del_medium
+chr21	38986	40367	INV	1381	1|0	1	site0003	inv
+chr21	44657	44872	DEL	215	1|0	1	site0004	del_small
+chr21	50473	56193	DUP	5720	1|0	1	site0005	dup_large

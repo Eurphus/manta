@@ -148,8 +148,10 @@ above, the demo can be run as follows:
     python3 ${MANTA_INSTALL_PATH}/bin/runMantaWorkflowDemo.py
 
 This script creates a `MantaDemoAnalysis` directory under the current
-working directory, runs Manta on a small demo dataset, and compares the
-candidate and diploid structural variant output to an expected result.
+working directory, runs Manta on two small demo datasets (a simulated
+germline sample, and real reads of a tumor cell line and its matched
+normal analyzed as two germline samples), and compares the candidate and
+diploid structural variant output of each to an expected result.
 
 See [the demo README](../../src/demo/README.md) for additional information
 on the test script and data.
