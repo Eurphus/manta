@@ -526,6 +526,10 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
             hygenCmd.extend(["--min-qual-score", self.params.minDiploidVariantScore])
             hygenCmd.extend(["--min-pass-qual-score", self.params.minPassDiploidVariantScore])
             hygenCmd.extend(["--min-pass-gt-score", self.params.minPassDiploidGTScore])
+            if not self.params.enableTandemDupModel :
+                hygenCmd.append("--no-tandem-dup-model")
+            if self.params.filterUncertainZygosity :
+                hygenCmd.append("--filter-uncertain-zygosity")
             # tumor/normal mode
             if isTumorNormal :
                 hygenCmd.extend(["--somatic-output-file", self.somaticVcfPaths[-1]])
@@ -572,6 +576,15 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
 
         if self.params.isOutputContig :
             hygenCmd.append("--output-contigs")
+
+        # assembly options
+        maxLocalHaplotypeCount = getattr(self.params, "maxLocalHaplotypeCount", None)
+        if maxLocalHaplotypeCount is not None :
+            hygenCmd.extend(["--max-local-haplotypes", str(maxLocalHaplotypeCount)])
+        if not self.params.enableInsertionContigMerge :
+            hygenCmd.append("--no-insertion-contig-merge")
+        if not self.params.enableContigConservativeRangeRefinement :
+            hygenCmd.append("--no-contig-range-refinement")
 
         hygenTask = preJoin(taskPrefix,"generateCandidateSV_"+binStr)
         hygenTasks.add(self.addTask(hygenTask,hygenCmd,dependencies=dirTask, nCores=self.getNCores(), memMb=self.params.hyGenMemMb))
@@ -755,6 +768,10 @@ class MantaWorkflow(WorkflowRunner) :
         safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInGermlineCallingModes")
         safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInCancerCallingModes")
         safeSetBool(self.params,"useOverlapPairEvidence")
+        safeSetBool(self.params,"enableInsertionContigMerge", default=True)
+        safeSetBool(self.params,"enableContigConservativeRangeRefinement", default=True)
+        safeSetBool(self.params,"enableTandemDupModel", default=True)
+        safeSetBool(self.params,"filterUncertainZygosity")
 
         # Use RNA option for minCandidate size
         if self.params.isRNA:

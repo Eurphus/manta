@@ -47,14 +47,17 @@ def argToBool(x) :
 
 
 
-def safeSetBool(obj,dataname) :
+def safeSetBool(obj,dataname,default=False) :
     """
-    translate ojb.dataname to a bool, or set to false if it doesn't exist
+    translate ojb.dataname to a bool, or set to the default value if it doesn't exist
+
+    A default of True is used for options which enable a behavior that is on by default, so that a configuration
+    file written before the option existed does not silently turn the behavior off.
     """
     if hasattr(obj, dataname) :
         setattr(obj, dataname, argToBool(getattr(obj, dataname)))
     else :
-        setattr(obj, dataname, False)
+        setattr(obj, dataname, default)
 
 
 
