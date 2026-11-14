@@ -1150,6 +1150,36 @@ BOOST_AUTO_TEST_CASE(test_getSpanningPairWeight)
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
       "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
   BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate), 0.04f, eps);
+
+  // Designed the case-5 where SV is a tandem duplication of size 400
+  // Without a full pair size, paired-read evidence always has full weight.
+  // With a full pair size of 600:
+  // _min = 300, _max = 600
+  // spanning weight = min(1, max(0, (400-300)/300)) = 1/3
+  candidate.insertSeq.clear();
+  candidate.bp1.interval = GenomeInterval(0, 1000, 1001);
+  candidate.bp2.interval = GenomeInterval(0, 1400, 1401);
+  candidate.bp1.state    = SVBreakendState::LEFT_OPEN;
+  candidate.bp2.state    = SVBreakendState::RIGHT_OPEN;
+  BOOST_REQUIRE_EQUAL(getSVType(candidate), SV_TYPE::TANDUP);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate), 1, eps);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 0), 1, eps);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 600), 1.f / 3.f, 0.0001);
+
+  // tandem duplication of size 200 and 700
+  candidate.bp2.interval = GenomeInterval(0, 1200, 1201);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 600), 0, eps);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate), 1, eps);
+  candidate.bp2.interval = GenomeInterval(0, 1700, 1701);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 600), 1, eps);
+
+  // the full pair size does not change the weight of a deletion (size 400: (400-300)/200 = 0.5)
+  candidate.bp1.state = SVBreakendState::RIGHT_OPEN;
+  candidate.bp2.state = SVBreakendState::LEFT_OPEN;
+  candidate.bp2.interval = GenomeInterval(0, 1400, 1401);
+  BOOST_REQUIRE_EQUAL(getSVType(candidate), SV_TYPE::INDEL);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate), 0.5f, 0.0001);
+  BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 600), 0.5f, 0.0001);
 }
 
 // Spanning weight is calculated as,
@@ -1379,7 +1409,7 @@ BOOST_AUTO_TEST_CASE(test_addDiploidLoglhood)
     loglhood[gt] = 0;
   }
   // fragment was not evaluated for pair or split support for either allele
-  addDiploidLoglhood(0.2, evidenceTrack, loglhood);
+  addDiploidLoglhood(0.2, getDefaultDiploidAlleleFractions(), false, evidenceTrack, loglhood);
   for (unsigned gt(0); gt < DIPLOID_GT::SIZE; ++gt) {
     BOOST_REQUIRE(loglhood[gt] == 0);
   }
@@ -1390,11 +1420,220 @@ BOOST_AUTO_TEST_CASE(test_addDiploidLoglhood)
   evidence.read2.setAnchored(true);
   evidence.alt.bp1.isFragmentSupport = true;
   evidenceTrack[fragLabel]           = evidence;
-  addDiploidLoglhood(0.2, evidenceTrack, loglhood);
+  addDiploidLoglhood(0.2, getDefaultDiploidAlleleFractions(), false, evidenceTrack, loglhood);
   // above mentioned formula is applied in loglhood
   BOOST_REQUIRE_CLOSE(loglhood[0], -1.3815510763831425, eps);  // REF
   BOOST_REQUIRE_CLOSE(loglhood[1], -1.3815510782877967, eps);  // HET
   BOOST_REQUIRE_CLOSE(loglhood[2], -1.3815510773843347, eps);  // HOM
+}
+
+// Test the allele fractions expected for a tandem duplication. With d the duplication size, w the number of
+// placements at which a read crosses one junction, and r = min(1, d/w):
+// het alt fraction = 1 / (2 + 3r)
+// hom alt fraction = 1 / (1 + 2r), scaled by the hom alt fraction used for all other variant types
+BOOST_AUTO_TEST_CASE(test_getTandemDupAlleleFractions)
+{
+  static const double eps(0.00001);
+
+  const double defaultHet(DIPLOID_GT::altFraction(DIPLOID_GT::HET));
+  const double defaultHom(DIPLOID_GT::altFraction(DIPLOID_GT::HOM));
+
+  // The default model must reproduce the fixed fractions used for all other variant types
+  {
+    const DiploidAlleleFractions fractions(getDefaultDiploidAlleleFractions());
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HET]), 0.5, eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HOM]), 0.99, eps);
+    BOOST_REQUIRE_EQUAL(std::exp(fractions.altLnFraction[DIPLOID_GT::REF]), 0.);
+  }
+
+  // A duplication larger than a read: 1 in 5 informative reads support a heterozygous duplication and 1 in 3
+  // support a homozygous duplication
+  for (const double dupSize : {118., 500., 100000.}) {
+    const DiploidAlleleFractions fractions(getTandemDupAlleleFractions(dupSize, 118));
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HET]), 1. / 5., eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HOM]), defaultHom / 3., eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnCompFraction[DIPLOID_GT::HET]), 4. / 5., eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnCompFraction[DIPLOID_GT::HOM]), 1. - (defaultHom / 3.), eps);
+    BOOST_REQUIRE_EQUAL(std::exp(fractions.altLnFraction[DIPLOID_GT::REF]), 0.);
+    BOOST_REQUIRE_EQUAL(fractions.altLnCompFraction[DIPLOID_GT::REF], 0.);
+  }
+
+  // In the limit of a very small duplication, the fractions are those of any other variant type
+  {
+    const DiploidAlleleFractions fractions(getTandemDupAlleleFractions(0, 118));
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HET]), defaultHet, eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HOM]), defaultHom, eps);
+  }
+
+  // An intermediate size: r = 0.5
+  {
+    const DiploidAlleleFractions fractions(getTandemDupAlleleFractions(59, 118));
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HET]), 1. / 3.5, eps);
+    BOOST_REQUIRE_CLOSE(std::exp(fractions.altLnFraction[DIPLOID_GT::HOM]), defaultHom / 2., eps);
+  }
+
+  // The heterozygous fraction is always below the homozygous fraction
+  for (const double dupSize : {0., 10., 50., 100., 117., 118., 1000., 100000.}) {
+    const DiploidAlleleFractions fractions(getTandemDupAlleleFractions(dupSize, 118));
+    BOOST_REQUIRE(fractions.altLnFraction[DIPLOID_GT::HET] < fractions.altLnFraction[DIPLOID_GT::HOM]);
+  }
+}
+
+// Test how the split read likelihoods of the two reads of a fragment are combined
+BOOST_AUTO_TEST_CASE(test_getRefAltFragLnLhood)
+{
+  static const double eps(0.000001);
+
+  // read1 crosses a reference breakend without any basecall errors, read2 crosses the duplication junction
+  // with a mismatch. The fragment comes from a haplotype carrying a tandem duplication.
+  AlleleLnLhood refSet;
+  AlleleLnLhood altSet;
+  refSet.read1Split = -0.3;
+  altSet.read1Split = -13.8;
+  refSet.read2Split = -11.5;
+  altSet.read2Split = -7.2;
+
+  double refLnFragLhood(0);
+  double altLnFragLhood(0);
+
+  // choosing the best read per allele, the fragment supports the reference allele
+  getRefAltFragLnLhood(refSet, altSet, true, true, false, refLnFragLhood, altLnFragLhood);
+  BOOST_REQUIRE_CLOSE(refLnFragLhood, -0.3, eps);
+  BOOST_REQUIRE_CLOSE(altLnFragLhood, -7.2, eps);
+  BOOST_REQUIRE_CLOSE(refLnFragLhood, getFragLnLhood(refSet, true, true), eps);
+  BOOST_REQUIRE_CLOSE(altLnFragLhood, getFragLnLhood(altSet, true, true), eps);
+
+  // choosing the read which supports the alt allele most strongly, the fragment supports the alt allele
+  getRefAltFragLnLhood(refSet, altSet, true, true, true, refLnFragLhood, altLnFragLhood);
+  BOOST_REQUIRE_CLOSE(refLnFragLhood, -11.5, eps);
+  BOOST_REQUIRE_CLOSE(altLnFragLhood, -7.2, eps);
+
+  // the same holds with the reads the other way around
+  std::swap(refSet.read1Split, refSet.read2Split);
+  std::swap(altSet.read1Split, altSet.read2Split);
+  getRefAltFragLnLhood(refSet, altSet, true, true, true, refLnFragLhood, altLnFragLhood);
+  BOOST_REQUIRE_CLOSE(refLnFragLhood, -11.5, eps);
+  BOOST_REQUIRE_CLOSE(altLnFragLhood, -7.2, eps);
+
+  // a fragment in which both reads support the reference allele still does so
+  refSet.read1Split = -0.3;
+  altSet.read1Split = -13.8;
+  refSet.read2Split = -0.4;
+  altSet.read2Split = -13.8;
+  getRefAltFragLnLhood(refSet, altSet, true, true, true, refLnFragLhood, altLnFragLhood);
+  BOOST_REQUIRE_CLOSE(refLnFragLhood, -0.4, eps);
+  BOOST_REQUIRE_CLOSE(altLnFragLhood, -13.8, eps);
+
+  // nothing changes when only one read was evaluated, and paired-read evidence is always included
+  refSet.fragPair = -1.;
+  altSet.fragPair = -2.;
+  for (const bool isUseBestAltRead : {false, true}) {
+    getRefAltFragLnLhood(refSet, altSet, true, false, isUseBestAltRead, refLnFragLhood, altLnFragLhood);
+    BOOST_REQUIRE_CLOSE(refLnFragLhood, -1.3, eps);
+    BOOST_REQUIRE_CLOSE(altLnFragLhood, -15.8, eps);
+    getRefAltFragLnLhood(refSet, altSet, false, true, isUseBestAltRead, refLnFragLhood, altLnFragLhood);
+    BOOST_REQUIRE_CLOSE(refLnFragLhood, -1.4, eps);
+    BOOST_REQUIRE_CLOSE(altLnFragLhood, -15.8, eps);
+    getRefAltFragLnLhood(refSet, altSet, false, false, isUseBestAltRead, refLnFragLhood, altLnFragLhood);
+    BOOST_REQUIRE_CLOSE(refLnFragLhood, -1., eps);
+    BOOST_REQUIRE_CLOSE(altLnFragLhood, -2., eps);
+  }
+}
+
+// Test that the tandem duplication model changes the ratio of the heterozygous and homozygous genotypes, and
+// nothing else
+BOOST_AUTO_TEST_CASE(test_applyTandemDupZygosity)
+{
+  using namespace DIPLOID_GT;
+  static const double eps(0.000001);
+
+  std::array<double, SIZE> logPrior;
+  logPrior[HET] = std::log(1e-5);
+  logPrior[HOM] = std::log(5e-6);
+  logPrior[REF] = std::log(1 - 1.5e-5);
+
+  auto getPosterior = [&](const std::array<double, SIZE>& loglhood) {
+    std::array<double, SIZE> pprob;
+    for (unsigned gt(0); gt < SIZE; ++gt) pprob[gt] = loglhood[gt] + logPrior[gt];
+    unsigned maxGt(0);
+    normalizeLogDistro(pprob.begin(), pprob.end(), maxGt);
+    return pprob;
+  };
+
+  // standard model: strongly non-reference, heterozygous. Duplication model: homozygous by a factor of
+  // exp(3) in likelihood
+  std::array<double, SIZE> loglhood;
+  loglhood[REF] = -40;
+  loglhood[HET] = -20;
+  loglhood[HOM] = -35;
+  std::array<double, SIZE> dupLoglhood;
+  dupLoglhood[REF] = -90;
+  dupLoglhood[HET] = -15;
+  dupLoglhood[HOM] = -12;
+
+  const std::array<double, SIZE> before(getPosterior(loglhood));
+  const std::array<double, SIZE> dupOnly(getPosterior(dupLoglhood));
+  const double                   refLoglhood(loglhood[REF]);
+  applyTandemDupZygosity(logPrior, dupLoglhood, loglhood);
+  const std::array<double, SIZE> after(getPosterior(loglhood));
+
+  // reference likelihood and posterior are unchanged, even though the duplication model on its own finds the
+  // reference genotype far less likely
+  BOOST_REQUIRE_EQUAL(loglhood[REF], refLoglhood);
+  BOOST_REQUIRE_CLOSE(after[REF], before[REF], eps);
+  BOOST_REQUIRE(dupOnly[REF] < (before[REF] * 1e-10));
+  BOOST_REQUIRE_CLOSE(after[HET] + after[HOM], before[HET] + before[HOM], eps);
+
+  // the het:hom posterior ratio is that of the duplication model
+  BOOST_REQUIRE_CLOSE(after[HOM] / after[HET], dupOnly[HOM] / dupOnly[HET], eps);
+  BOOST_REQUIRE(before[HET] > before[HOM]);
+  BOOST_REQUIRE(after[HOM] > after[HET]);
+
+  // a sample without evidence for the duplication stays reference
+  {
+    std::array<double, SIZE> refSampleLoglhood    = {{-1, -30, -60}};
+    std::array<double, SIZE> refSampleDupLoglhood = {{-1, -12, -20}};
+    const std::array<double, SIZE> refBefore(getPosterior(refSampleLoglhood));
+    applyTandemDupZygosity(logPrior, refSampleDupLoglhood, refSampleLoglhood);
+    const std::array<double, SIZE> refAfter(getPosterior(refSampleLoglhood));
+    BOOST_REQUIRE_CLOSE(refAfter[REF], refBefore[REF], eps);
+    BOOST_REQUIRE(refAfter[REF] > 0.999);
+  }
+
+  // likelihoods are left alone if the duplication model has no finite value to offer
+  {
+    const double             negInf(-std::numeric_limits<double>::infinity());
+    std::array<double, SIZE> testLoglhood    = {{-40, -20, -35}};
+    std::array<double, SIZE> testDupLoglhood = {{-40, negInf, negInf}};
+    applyTandemDupZygosity(logPrior, testDupLoglhood, testLoglhood);
+    BOOST_REQUIRE_EQUAL(testLoglhood[HET], -20);
+    BOOST_REQUIRE_EQUAL(testLoglhood[HOM], -35);
+  }
+}
+
+// Test the mean read size of the reads scanned as evidence
+BOOST_AUTO_TEST_CASE(test_getMeanEvidenceReadSize)
+{
+  SVEvidence::evidenceTrack_t evidenceTrack;
+  BOOST_REQUIRE_EQUAL(getMeanEvidenceReadSize(evidenceTrack), 0.);
+
+  // reads which were not scanned are not counted
+  SVFragmentEvidence fragment1;
+  fragment1.read1.size      = 100;
+  evidenceTrack["frag-1"]   = fragment1;
+  BOOST_REQUIRE_EQUAL(getMeanEvidenceReadSize(evidenceTrack), 0.);
+
+  fragment1.read1.isScanned = true;
+  evidenceTrack["frag-1"]   = fragment1;
+  BOOST_REQUIRE_EQUAL(getMeanEvidenceReadSize(evidenceTrack), 100.);
+
+  SVFragmentEvidence fragment2;
+  fragment2.read1.isScanned = true;
+  fragment2.read1.size      = 150;
+  fragment2.read2.isScanned = true;
+  fragment2.read2.size      = 140;
+  evidenceTrack["frag-2"]   = fragment2;
+  BOOST_REQUIRE_EQUAL(getMeanEvidenceReadSize(evidenceTrack), 130.);
 }
 
 // Test the definition of a sample which carries a variant with uncertain zygosity

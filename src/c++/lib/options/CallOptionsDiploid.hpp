@@ -53,6 +53,32 @@ struct CallOptionsDiploid {
   /// the SAMPLE filter for home-ref calls
   std::string homRefLabel = "HomRef";
 
+  /// If true, the evidence for a tandem duplication is scored in a way which accounts for the structure of a
+  /// haplotype carrying it. This applies to germline scoring of a duplication called as a single junction:
+  ///
+  /// 1. The choice between a heterozygous and homozygous genotype is made using the allele fractions expected
+  /// for a duplication instead of those expected for other variant types. The sequence across both reference
+  /// breakends of a tandem duplication is still present on a haplotype carrying the duplication, so reads
+  /// supporting the reference allele are observed even for a homozygous duplication, see
+  /// getTandemDupAlleleFractions(). The probability that the sample carries the duplication at all does not
+  /// depend on these fractions.
+  ///
+  /// 2. If one read of a fragment crosses the duplication junction and the other read crosses a reference
+  /// breakend, the fragment is scored on the read crossing the duplication junction. Both are present on one
+  /// molecule from a haplotype carrying the duplication, so the read at the reference breakend is not evidence
+  /// against the duplication, see getRefAltFragLnLhood().
+  ///
+  /// 3. Paired-read evidence is phased out for small duplications, in the same way as it always has been for
+  /// small deletions and insertions. Read pairs supporting a tandem duplication are only found through their
+  /// anomalous orientation, which requires a duplication at least as large as the sequenced fragments. For a
+  /// smaller duplication paired-read evidence can only ever be found for the reference allele.
+  ///
+  /// If false, tandem duplications are scored exactly as all other variant types (v1.6.0 behavior)
+  bool isTandemDupModel = true;
+
+  /// Set by the command line to turn off isTandemDupModel
+  bool isDisableTandemDupModel = false;
+
   /// If false, a variant is not filtered at the record level when its only confident sample fails the minimum
   /// genotype quality filter because the sample's zygosity is uncertain.
   ///

@@ -24,10 +24,12 @@
 #include "SVScorer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 
 #include "SVScorePairAltProcessor.hpp"
+#include "SplitReadAlignment.hpp"
 #include "blt_util/LinearScaler.hpp"
 #include "blt_util/log.hpp"
 #include "blt_util/math_util.hpp"
@@ -702,6 +704,45 @@ static double getFragLnLhood(
   return ret;
 }
 
+/// Combine the paired and split read likelihoods of one fragment, for the ref and the alt allele
+///
+/// \param[in] isUseBestAltRead If false, the best split read likelihood of the fragment is chosen separately
+/// for each allele, see getFragLnLhood(). If true and both reads have been evaluated, the split read
+/// likelihoods of both alleles are taken from the same read: the read which supports the alt allele most
+/// strongly, relative to the reference allele.
+///
+/// The second case is designed for a tandem duplication. A molecule from a haplotype carrying the duplication
+/// can cross both the duplication junction and one of the reference breakends, which are still intact on that
+/// haplotype. For a duplication smaller than the fragment size it is common for one read to cross each. The
+/// read at the reference breakend then matches the reference allele at least as well as the other read matches
+/// the alt allele, so that choosing the best read per allele makes the fragment uninformative at best, and
+/// evidence for the reference allele whenever the read on the duplication junction has more basecall errors.
+/// In terms of where the molecule came from, the likelihood ratio between 'covers the duplication junction'
+/// and 'covers reference sequence only' is the largest such ratio of any one read, because the other read is
+/// reference sequence under both hypotheses.
+///
+static void getRefAltFragLnLhood(
+    const AlleleLnLhood& refLnLhoodSet,
+    const AlleleLnLhood& altLnLhoodSet,
+    bool                 isRead1Evaluated,
+    bool                 isRead2Evaluated,
+    const bool           isUseBestAltRead,
+    double&              refLnFragLhood,
+    double&              altLnFragLhood)
+{
+  if (isUseBestAltRead && isRead1Evaluated && isRead2Evaluated) {
+    const double read1AltSupport(altLnLhoodSet.read1Split - refLnLhoodSet.read1Split);
+    const double read2AltSupport(altLnLhoodSet.read2Split - refLnLhoodSet.read2Split);
+    if (read1AltSupport >= read2AltSupport) {
+      isRead2Evaluated = false;
+    } else {
+      isRead1Evaluated = false;
+    }
+  }
+  refLnFragLhood = getFragLnLhood(refLnLhoodSet, isRead1Evaluated, isRead2Evaluated);
+  altLnFragLhood = getFragLnLhood(altLnLhoodSet, isRead1Evaluated, isRead2Evaluated);
+}
+
 /// when an sv is treated as 'small', we skip all paired-read evidence and rely on split reads only:
 ///
 /// with further model improvements we can add pairs back into the small variant calls:
@@ -709,9 +750,19 @@ static double getFragLnLhood(
 /// this function returns 1 for a variant which is "fully large" and 0 for a variant which is "fully small",
 /// with intermediate values for sizes in between
 ///
-static float getSpanningPairWeight(const SVCandidate& sv)
+/// \param[in] tandemDupFullPairSize The tandem duplication size from which paired-read evidence is given full
+/// weight. The weight is zero up to half of this size. Read pairs supporting a tandem duplication are only
+/// found through their anomalous orientation, so this should be set to the size of a large fragment in the
+/// sequenced library. If zero, paired-read evidence is given full weight for tandem duplications of any size.
+///
+static float getSpanningPairWeight(const SVCandidate& sv, const int tandemDupFullPairSize = 0)
 {
   const auto svType(getExtendedSVType(sv));
+  if (svType == EXTENDED_SV_TYPE::TANDUP) {
+    if (tandemDupFullPairSize <= 1) return 1.f;
+    const LinearScaler<int> dupSizeRamp(tandemDupFullPairSize / 2, tandemDupFullPairSize);
+    return dupSizeRamp.getScale(sv.centerSize());
+  }
   if (!((svType == EXTENDED_SV_TYPE::INSERT) || (svType == EXTENDED_SV_TYPE::DELETE))) return 1.f;
 
   if ((svType == EXTENDED_SV_TYPE::INSERT) && SVScorePairAltProcessor::isLargeInsertSV(sv)) {
@@ -843,6 +894,138 @@ static bool getRefAltFromFrag(
   return (isFragEvaluated || isRead1Evaluated || isRead2Evaluated);
 }
 
+/// Expected fraction of the fragments informative for a variant which support its alt allele, in log space,
+/// for each diploid genotype
+struct DiploidAlleleFractions {
+  std::array<double, DIPLOID_GT::SIZE> altLnFraction;
+  std::array<double, DIPLOID_GT::SIZE> altLnCompFraction;
+};
+
+/// Allele fractions used for all variant types other than tandem duplications
+static DiploidAlleleFractions getDefaultDiploidAlleleFractions()
+{
+  DiploidAlleleFractions fractions;
+  for (unsigned gt(0); gt < DIPLOID_GT::SIZE; ++gt) {
+    const DIPLOID_GT::index_t gtid(static_cast<DIPLOID_GT::index_t>(gt));
+    fractions.altLnFraction[gt]     = DIPLOID_GT::altLnFraction(gtid);
+    fractions.altLnCompFraction[gt] = DIPLOID_GT::altLnCompFraction(gtid);
+  }
+  return fractions;
+}
+
+/// Allele fractions expected for a tandem duplication
+///
+/// For most variant types the reference allele junction is destroyed on a haplotype carrying the variant, so
+/// that reads supporting the reference allele can only come from a reference haplotype. A tandem duplication is
+/// different: a haplotype carrying it still contains the unchanged reference sequence across the start of the
+/// first copy and across the end of the second copy, in addition to the one new junction between the copies.
+/// Reads across those two positions are indistinguishable from reference reads and are (correctly) counted as
+/// reference allele support.
+///
+/// Write d for the duplication size and w for the number of positions at which a read can be placed such that
+/// it crosses one given junction with enough sequence on both sides to be counted as evidence. The observations
+/// which are informative for the duplication are the reads crossing at least one junction:
+///
+/// - On a duplication haplotype A-D-D-B, w placements cross the new junction between the two copies and
+///   support the alt allele. The placements which cross A-D or D-B without also crossing the new junction
+///   support the reference allele, there are min(w, d) of these on each side.
+/// - On a reference haplotype A-D-B, w placements cross the first reference breakend and a further min(w, d)
+///   cross the second breakend only. All of these support the reference allele.
+///
+/// With r = min(1, d/w), the expected fraction of alt-supporting observations is therefore:
+///
+///   heterozygous: 1 / (2 + 3r)
+///   homozygous:   1 / (1 + 2r)
+///
+/// So for any duplication larger than a read, 1 in 5 informative observations support a heterozygous
+/// duplication and 1 in 3 support a homozygous duplication, compared to 1 in 2 and (nearly) all for other
+/// variant types. Genotyping a duplication with the fractions used for other variant types can therefore
+/// never yield a homozygous genotype. As the duplication size goes to zero, the expected fractions converge
+/// on those of a simple insertion, which is what a very small tandem duplication is.
+///
+/// These fractions are used to choose between the heterozygous and homozygous genotype only, see
+/// applyTandemDupZygosity().
+///
+/// The fractions are scaled such that they are equal to the default values of all other variant types at r = 0.
+///
+/// \param[in] dupSize duplication size (d)
+///
+/// \param[in] junctionWindow number of read placements crossing one junction (w)
+///
+static DiploidAlleleFractions getTandemDupAlleleFractions(const double dupSize, const double junctionWindow)
+{
+  assert(junctionWindow > 0);
+
+  const double r(std::min(1., std::max(0., dupSize) / junctionWindow));
+
+  std::array<double, DIPLOID_GT::SIZE> altFraction;
+  altFraction[DIPLOID_GT::REF] = 0.;
+  altFraction[DIPLOID_GT::HET] = DIPLOID_GT::altFraction(DIPLOID_GT::HET) / (1. + 1.5 * r);
+  altFraction[DIPLOID_GT::HOM] = DIPLOID_GT::altFraction(DIPLOID_GT::HOM) / (1. + 2. * r);
+
+  DiploidAlleleFractions fractions;
+  for (unsigned gt(0); gt < DIPLOID_GT::SIZE; ++gt) {
+    fractions.altLnFraction[gt]     = std::log(altFraction[gt]);
+    fractions.altLnCompFraction[gt] = std::log(1. - altFraction[gt]);
+  }
+  return fractions;
+}
+
+/// Replace the heterozygous and homozygous genotype likelihoods of a tandem duplication with values which
+/// split the non-reference probability according to the tandem duplication allele fraction model
+///
+/// The question of whether the sample carries the duplication at all is left to the standard model used for
+/// every variant type, so that neither the set of duplications called nor their QUAL depends on the
+/// duplication model. This is the conservative choice: a heterozygous duplication is supported by only 1 in 5
+/// informative reads, so a model expecting this fraction also finds a junction supported by a few percent of
+/// reads far more plausible as a variant than the standard model does, and such low fraction junctions are
+/// more likely to be artifacts than germline variants. The duplication model is used only for the question the
+/// standard model cannot answer, which is how many copies of the duplication are present.
+///
+/// \param[in] logPrior Genotype prior
+///
+/// \param[in] dupLoglhood Genotype likelihoods from the tandem duplication allele fractions
+///
+/// \param[in,out] loglhood Genotype likelihoods from the standard allele fractions. On return the total
+/// posterior probability of the two non-reference genotypes is unchanged, and the ratio between them is that
+/// found from \p dupLoglhood
+///
+template <typename PriorType>
+static void applyTandemDupZygosity(
+    const PriorType&                            logPrior,
+    const std::array<double, DIPLOID_GT::SIZE>& dupLoglhood,
+    std::array<double, DIPLOID_GT::SIZE>&       loglhood)
+{
+  using namespace DIPLOID_GT;
+
+  const double nonRefLnPost(log_sum(loglhood[HET] + logPrior[HET], loglhood[HOM] + logPrior[HOM]));
+  const double dupNonRefLnPost(log_sum(dupLoglhood[HET] + logPrior[HET], dupLoglhood[HOM] + logPrior[HOM]));
+
+  // nothing to divide up if the duplication model has no finite likelihood for either genotype
+  if (!(std::isfinite(nonRefLnPost) && std::isfinite(dupNonRefLnPost))) return;
+
+  for (const index_t gt : {HET, HOM}) {
+    loglhood[gt] = nonRefLnPost + (dupLoglhood[gt] - dupNonRefLnPost);
+  }
+}
+
+/// \return The mean size of all reads scanned as evidence in one sample, or zero if there are none
+static double getMeanEvidenceReadSize(const SVEvidence::evidenceTrack_t& sampleEvidence)
+{
+  double   sizeSum(0);
+  unsigned readCount(0);
+  for (const SVEvidence::evidenceTrack_t::value_type& val : sampleEvidence) {
+    for (const bool isRead1 : {true, false}) {
+      const SVFragmentEvidenceRead& evRead(val.second.getRead(isRead1));
+      if ((!evRead.isScanned) || (evRead.size == 0)) continue;
+      sizeSum += evRead.size;
+      readCount++;
+    }
+  }
+  if (readCount == 0) return 0;
+  return (sizeSum / readCount);
+}
+
 /// \return true if the sample has a confident non-reference genotype with uncertain zygosity
 ///
 /// This is the case for a sample which fails the minimum genotype quality filter and no other sample filter,
@@ -860,8 +1043,13 @@ static bool isConfidentNonRefSample(
 }
 
 /// score diploid germline specific components:
+///
+/// \param[in] isUseBestAltRead See getRefAltFragLnLhood()
+///
 static void addDiploidLoglhood(
     const float                           spanningPairWeight,
+    const DiploidAlleleFractions&         alleleFractions,
+    const bool                            isUseBestAltRead,
     const SVEvidence::evidenceTrack_t&    sampleEvidence,
     std::array<double, DIPLOID_GT::SIZE>& loglhood)
 {
@@ -909,8 +1097,16 @@ static void addDiploidLoglhood(
       continue;
     }
 
-    const double refLnFragLhood(getFragLnLhood(refLnLhoodSet, isRead1Evaluated, isRead2Evaluated));
-    const double altLnFragLhood(getFragLnLhood(altLnLhoodSet, isRead1Evaluated, isRead2Evaluated));
+    double refLnFragLhood(0);
+    double altLnFragLhood(0);
+    getRefAltFragLnLhood(
+        refLnLhoodSet,
+        altLnLhoodSet,
+        isRead1Evaluated,
+        isRead2Evaluated,
+        isUseBestAltRead,
+        refLnFragLhood,
+        altLnFragLhood);
 
 #ifdef DEBUG_SCORE
     log_os << __FUNCTION__ << ": refLnFragLhood: " << refLnFragLhood << "\n";
@@ -924,9 +1120,8 @@ static void addDiploidLoglhood(
       log_os << __FUNCTION__ << ": starting gt: " << gt << " " << label(gt) << "\n";
 #endif
 
-      const index_t gtid(static_cast<index_t>(gt));
-      const double  refLnLhood(refLnFragLhood + altLnCompFraction(gtid));
-      const double  altLnLhood(altLnFragLhood + altLnFraction(gtid));
+      const double refLnLhood(refLnFragLhood + alleleFractions.altLnCompFraction[gt]);
+      const double altLnLhood(altLnFragLhood + alleleFractions.altLnFraction[gt]);
       loglhood[gt] += log_sum(refLnLhood, altLnLhood);
 
 #ifdef DEBUG_SCORE
@@ -956,15 +1151,49 @@ static void scoreDiploidSV(
 
   double jointRefProb(1.);
 
+  // The tandem duplication model only applies to a duplication called as a single junction, not to a
+  // duplication-like junction of a larger event.
+  const bool isTandemDupModel(
+      diploidOpt.isTandemDupModel && (junctionData.size() == 1) &&
+      (getSVType(junctionData[0].getSV()) == SV_TYPE::TANDUP));
+
+  static const DiploidAlleleFractions defaultAlleleFractions(getDefaultDiploidAlleleFractions());
+
   const unsigned diploidSampleCount(diploidInfo.samples.size());
   for (unsigned diploidSampleIndex(0); diploidSampleIndex < diploidSampleCount; ++diploidSampleIndex) {
     SVScoreInfoDiploidSample& diploidSampleInfo(diploidInfo.samples[diploidSampleIndex]);
 
     std::array<double, DIPLOID_GT::SIZE> loglhood;
     std::fill(loglhood.begin(), loglhood.end(), 0);
-    for (const JunctionCallInfo& junction : junctionData) {
+    for (unsigned junctionIndex(0); junctionIndex < junctionData.size(); ++junctionIndex) {
+      const JunctionCallInfo&            junction(junctionData[junctionIndex]);
       const SVEvidence::evidenceTrack_t& etrack(junction.getEvidence().samples[diploidSampleIndex]);
-      addDiploidLoglhood(junction.getSpanningWeight(), etrack, loglhood);
+
+      if (!isTandemDupModel) {
+        addDiploidLoglhood(junction.getSpanningWeight(), defaultAlleleFractions, false, etrack, loglhood);
+        continue;
+      }
+
+      // paired-read support for a duplication is found from anomalous read pair orientation only, which is
+      // not reliably observed until the duplication is as large as a large fragment of the library
+      const float spanningPairWeight(getSpanningPairWeight(
+          junction.getSV(), static_cast<int>(readScanner.getExtremeFifthRange().max)));
+
+      addDiploidLoglhood(spanningPairWeight, defaultAlleleFractions, true, etrack, loglhood);
+
+      // the number of placements at which a read crosses a junction with the minimum flank size on both
+      // sides. Without any reads there is no evidence to score.
+      const double meanReadSize(getMeanEvidenceReadSize(etrack));
+      const double junctionWindow(meanReadSize - (2. * getMinSplitReadFlankSize()));
+      if (junctionWindow >= 1.) {
+        const DiploidAlleleFractions dupAlleleFractions(
+            getTandemDupAlleleFractions(junction.getSV().centerSize(), junctionWindow));
+
+        std::array<double, DIPLOID_GT::SIZE> dupLoglhood;
+        std::fill(dupLoglhood.begin(), dupLoglhood.end(), 0);
+        addDiploidLoglhood(spanningPairWeight, dupAlleleFractions, true, etrack, dupLoglhood);
+        applyTandemDupZygosity(diploidDopt.logPrior, dupLoglhood, loglhood);
+      }
     }
     std::array<double, DIPLOID_GT::SIZE> pprob;
     for (unsigned gt(0); gt < DIPLOID_GT::SIZE; ++gt) {
@@ -1503,9 +1732,15 @@ static void scoreSomaticSV(
     // independently estimate diploid genotype:
     std::array<double, DIPLOID_GT::SIZE> normalLhood;
     std::fill(normalLhood.begin(), normalLhood.end(), 0);
+    // the tandem duplication model is not used in somatic scoring
+    static const DiploidAlleleFractions defaultAlleleFractions(getDefaultDiploidAlleleFractions());
     for (const JunctionCallInfo& junction : junctionData) {
       addDiploidLoglhood(
-          junction.getSpanningWeight(), junction.getEvidence().samples[normalSampleIndex], normalLhood);
+          junction.getSpanningWeight(),
+          defaultAlleleFractions,
+          false,
+          junction.getEvidence().samples[normalSampleIndex],
+          normalLhood);
     }
 
     std::array<double, DIPLOID_GT::SIZE> normalPprob;

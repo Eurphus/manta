@@ -181,6 +181,9 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
     opt.refineOpt.spanningAssembleOpt.isRefineConservativeRange    = false;
     opt.refineOpt.RNAspanningAssembleOpt.isRefineConservativeRange = false;
   }
+  if (opt.diploidOpt.isDisableTandemDupModel) {
+    opt.diploidOpt.isTandemDupModel = false;
+  }
 
   checkStandardizeUsageFile(log_os, prog, visible, opt.graphFilename, "SV locus graph");
   checkStandardizeUsageFile(log_os, prog, visible, opt.referenceFilename, "reference fasta");

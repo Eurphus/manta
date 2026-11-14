@@ -61,6 +61,10 @@ std::ostream& operator<<(std::ostream& os, const SRAlignmentInfo& info);
 /// alignment record in which all but a few bases are hard-clipped.
 bool isSplitReadAlignable(const unsigned querySize, const unsigned targetSize);
 
+/// \return the minimum number of bases required on each side of a breakend for a read to count as split read
+/// evidence
+unsigned getMinSplitReadFlankSize();
+
 /// \param[in] flankScoreSize the number of bases to score past the end of microhomology range
 ///
 /// \param[in] targetBpOffsetRange this is the range of the breakend (accounting for microhomology) in

@@ -33,6 +33,8 @@ boost::program_options::options_description getOptionsDescription(CallOptionsDip
    "minimum QUAL score for variants to PASS in germline output vcf")
   ("min-pass-gt-score", po::value(&opt.minPassGTScore)->default_value(opt.minPassGTScore),
    "minimum genotype quality score below which samples are filtered for a variant in the germline output vcf")
+  ("no-tandem-dup-model", po::value(&opt.isDisableTandemDupModel)->zero_tokens(),
+   "Score the evidence for tandem duplications exactly as for all other variant types (v1.6.0 behavior). By default the germline scoring of a tandem duplication accounts for the reference junctions which remain on a haplotype carrying it")
   ("filter-uncertain-zygosity", po::value(&opt.isFilterUncertainZygosity)->zero_tokens(),
    "Apply the record level sample filter to a variant if its only non-reference samples have low genotype quality, even if the low quality is due to uncertain zygosity and not to an uncertain presence of the variant (v1.6.0 behavior)")
   ;

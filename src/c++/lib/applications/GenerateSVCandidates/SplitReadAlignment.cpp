@@ -129,6 +129,11 @@ bool isSplitReadAlignable(const unsigned querySize, const unsigned targetSize)
   return ((querySize >= (2 * minSplitFlankSizeTier2)) && (querySize < targetSize));
 }
 
+unsigned getMinSplitReadFlankSize()
+{
+  return minSplitFlankSize;
+}
+
 static bool isEvidenceCheck(const SRAlignmentInfo& alignment, const unsigned minFlankSize)
 {
   if (alignment.leftSize < minFlankSize) return false;
