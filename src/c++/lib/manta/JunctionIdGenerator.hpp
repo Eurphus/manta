@@ -47,7 +47,7 @@ struct SVId {
 struct JunctionIdGenerator {
   JunctionIdGenerator() : _SVIdFormatter("Manta%s:%i:%i:%i:%i:%i:%i") {}
 
-  void getId(const EdgeInfo& edge, const SVCandidate& sv, const bool isRNA, SVId& svId);
+  void getId(const EdgeInfo& edge, const SVCandidate& sv, SVId& svId);
 
 private:
   boost::format _SVIdFormatter;

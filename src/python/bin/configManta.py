@@ -56,15 +56,9 @@ You must specify a BAM or CRAM file for at least one sample.
 
     def addWorkflowGroupOptions(self,group) :
         group.add_option("--bam","--normalBam", type="string",dest="normalBamList",metavar="FILE", action="append",
-                         help="Normal sample BAM or CRAM file. May be specified more than once, multiple inputs will be treated as each BAM file representing a different sample. [optional] (no default)")
-        group.add_option("--tumorBam","--tumourBam", type="string",dest="tumorBamList",metavar="FILE", action="append",
-                          help="Tumor sample BAM or CRAM file. Only up to one tumor bam file accepted. [optional] (no default)")
+                         help="Sample BAM or CRAM file. May be specified more than once, multiple inputs will be treated as each BAM file representing a different sample. (no default)")
         group.add_option("--exome", dest="isExome", action="store_true",
                          help="Set options for WES input: turn off depth filters")
-        group.add_option("--rna", dest="isRNA", action="store_true",
-                         help="Set options for RNA-Seq input. Must specify exactly one bam input file")
-        group.add_option("--unstrandedRNA", dest="isUnstrandedRNA", action="store_true",
-                         help="Set if RNA-Seq input is unstranded: Allows splice-junctions on either strand")
 
         MantaWorkflowOptionsBase.addWorkflowGroupOptions(self,group)
 
@@ -95,9 +89,7 @@ You must specify a BAM or CRAM file for at least one sample.
         defaults.update({
             'runDir' : 'MantaWorkflow',
             'isExome' : False,
-            'isRNA' : False,
             'isOutputContig' : False,
-            'isUnstrandedRNA' : False,
             'defaultAlignStatsFile' : None,
             'useExistingChromDepths' : False,
             'isRetainTempFiles' : False,
@@ -114,35 +106,16 @@ You must specify a BAM or CRAM file for at least one sample.
             if x is None : return 0
             return len(x)
 
-        if ((safeLen(options.normalBamList) == 0) and
-                (safeLen(options.tumorBamList) == 0)) :
-            raise OptParseException("No normal or tumor sample alignment files specified")
-
-        if (safeLen(options.tumorBamList) > 1) :
-            raise OptParseException("Can't accept more then one tumor sample")
-
-        if ((safeLen(options.tumorBamList) > 0) and (safeLen(options.normalBamList) > 1)) :
-            raise OptParseException("Can't accept multiple normal samples for tumor subtraction")
-
-        if options.isRNA :
-            if ((safeLen(options.normalBamList) != 1) or
-                    (safeLen(options.tumorBamList) != 0)) :
-                raise OptParseException("RNA mode currently requires exactly one normal sample")
-        else :
-            if options.isUnstrandedRNA :
-                raise OptParseException("Unstranded only applied for RNA inputs")
+        if safeLen(options.normalBamList) == 0 :
+            raise OptParseException("No sample alignment files specified")
 
         if options.defaultAlignStatsFile is not None :
             options.defaultAlignStatsFile=validateFixExistingFileArg(options.defaultAlignStatsFile,"default align stats")
 
-        groomBamList(options.normalBamList,"normal sample")
-        groomBamList(options.tumorBamList, "tumor sample")
+        groomBamList(options.normalBamList,"sample")
 
         bamSetChecker = BamSetChecker()
-        if safeLen(options.normalBamList) > 0 :
-            bamSetChecker.appendBams(options.normalBamList,"Normal")
-        if safeLen(options.tumorBamList) > 0 :
-            bamSetChecker.appendBams(options.tumorBamList,"Tumor")
+        bamSetChecker.appendBams(options.normalBamList,"Sample")
         bamSetChecker.check(options.htsfileBin,
                             options.referenceFasta)
 

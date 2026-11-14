@@ -34,8 +34,7 @@ boost::program_options::options_description getOptionsDescription(ReadScannerOpt
   ("use-overlapping-pair", po::value(&opt.useOverlapPairEvidence)->zero_tokens(),
    "Consider an overlapping read pair as evidence")
   ("ignore-anom-proper-pair", po::value(&opt.isIgnoreAnomProperPair)->zero_tokens(),
-   "Disregard anomalous fragment sizes if the BAM record has the proper pair bit set. "
-   "This flag is typically set for RNA-SEQ analysis where the proper-pair bit is used to indicate an intron-spanning read pair.")
+   "Disregard anomalous fragment sizes if the BAM record has the proper pair bit set.")
   ;
   // clang-format on
 

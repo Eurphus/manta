@@ -130,7 +130,7 @@ static void checkJunctionsToFilter(
     //   (1) at least one junction in the set must have spanning count of minCandidateSpanningCount or more
     bool isJunctionSpanFail(false);
     if (isCandidateSpanning) {
-      if (sv.getPostAssemblySpanningCount(opt.isRNA) < opt.minCandidateSpanningCount) {
+      if (sv.getPostAssemblySpanningCount() < opt.minCandidateSpanningCount) {
         isJunctionSpanFail = true;
       }
     }
@@ -140,7 +140,7 @@ static void checkJunctionsToFilter(
     if (isCandidateSpanning) {
       //   (2) each spanning junction in the set must have spanning count of
       //      minJunctionCandidateSpanningCount or more
-      if (sv.getPostAssemblySpanningCount(opt.isRNA) < minJunctionCandidateSpanningCount) {
+      if (sv.getPostAssemblySpanningCount() < minJunctionCandidateSpanningCount) {
         isJunctionFiltered[junctionIndex] = true;
         continue;
       }
@@ -210,8 +210,6 @@ void SVCandidateProcessor::scoreSV(
       mjSV,
       junctionSVId,
       isJunctionFiltered,
-      _opt.isSomatic(),
-      _opt.isTumorOnly(),
       _mjModelScoreInfo,
       _mjJointModelScoreInfo,
       isMJEvent,
@@ -245,7 +243,7 @@ void SVCandidateProcessor::scoreAndWriteSV(
   for (unsigned junctionIndex(0); junctionIndex < junctionCount; ++junctionIndex) {
     const SVCandidate& sv(mjSV.junction[junctionIndex]);
     SVId&              svId(junctionSVId[junctionIndex]);
-    _idgen.getId(edge, sv, _opt.isRNA, svId);
+    _idgen.getId(edge, sv, svId);
   }
 
   // Now score the SV

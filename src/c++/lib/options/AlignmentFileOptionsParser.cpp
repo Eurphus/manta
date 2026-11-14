@@ -32,10 +32,7 @@ boost::program_options::options_description getOptionsDescription(AlignmentFileO
   desc.add_options()(
       "align-file",
       po::value<files_t>(),
-      "alignment file in BAM or CRAM format (may be specified multiple times, assumed to be non-tumor if tumor file(s) provided)")(
-      "tumor-align-file",
-      po::value<files_t>(),
-      "tumor sample alignment file in BAM or CRAM format (may be specified multiple times)");
+      "alignment file in BAM or CRAM format (may be specified multiple times, one file per sample)");
   // clang-format on
 
   return desc;
@@ -46,21 +43,9 @@ bool parseOptions(
 {
   errorMsg.clear();
 
-  // paste together tumor and normal:
-  {
-    files_t normal;
-    files_t tumor;
-    if (vm.count("align-file")) {
-      normal = (boost::any_cast<files_t>(vm["align-file"].value()));
-    }
-    if (vm.count("tumor-align-file")) {
-      tumor = (boost::any_cast<files_t>(vm["tumor-align-file"].value()));
-    }
-    opt.alignmentFilenames = normal;
-    opt.alignmentFilenames.insert(opt.alignmentFilenames.end(), tumor.begin(), tumor.end());
-    opt.isAlignmentTumor.clear();
-    opt.isAlignmentTumor.resize(normal.size(), false);
-    opt.isAlignmentTumor.resize(opt.alignmentFilenames.size(), true);
+  opt.alignmentFilenames.clear();
+  if (vm.count("align-file")) {
+    opt.alignmentFilenames = (boost::any_cast<files_t>(vm["align-file"].value()));
   }
 
   if (opt.alignmentFilenames.empty()) {

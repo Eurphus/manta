@@ -667,11 +667,10 @@ void VcfWriterSV::writeSVCore(
     const SVId&                    svId,
     const SVScoreInfo*             baseScoringInfoPtr,
     const boost::any               specializedScoringInfo,
-    const EventInfo&               event,
-    const bool                     isForceIntraChromBnd) const
+    const EventInfo&               event) const
 {
   using namespace EXTENDED_SV_TYPE;
-  const index_t svType(getExtendedSVType(sv, isForceIntraChromBnd));
+  const index_t svType(getExtendedSVType(sv));
 
 #ifdef DEBUG_VCF
   log_os << "VcfWriterSV::writeSVCore svType: " << EXTENDED_SV_TYPE::label(svType) << "\n";

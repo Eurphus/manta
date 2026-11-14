@@ -23,7 +23,6 @@
 #include "GSCOptions.hpp"
 #include "alignment/GlobalAligner.hpp"
 #include "alignment/GlobalJumpAligner.hpp"
-#include "alignment/GlobalJumpIntronAligner.hpp"
 #include "alignment/GlobalLargeIndelAligner.hpp"
 #include "htsapi/bam_header_info.hpp"
 #include "manta/SVCandidate.hpp"
@@ -47,7 +46,6 @@ struct SVCandidateAssemblyRefiner {
 
   /// \brief Given a low-resolution SV candidate, compute a possible base-level refinement via assembly
   ///
-  /// \param[in] isRNA if true add intron logic to the contig jump aligner
   /// \param[in] isFindLargeInsertions if true search for insertions which can't be completely assembled, and
   /// conduct more expensive search for assembly insertion evidence
   /// \param[out] assemblyData All candidate refinement results are returned in this structure.
@@ -90,7 +88,6 @@ private:
   const GlobalAligner<int>           _largeInsertEdgeAligner;
   const GlobalAligner<int>           _largeInsertCompleteAligner;
   const GlobalJumpAligner<int>       _spanningAligner;
-  const GlobalJumpIntronAligner<int> _RNASpanningAligner;
 
   const AlignmentScores<int> _contigFilterAlignmentScores;
 

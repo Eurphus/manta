@@ -71,13 +71,9 @@ struct SVCandidate {
     if (bp1.isIntersect(rhs.bp1)) {
       bp1.merge(rhs.bp1, isExpandRegion);
       bp2.merge(rhs.bp2, isExpandRegion);
-      forwardTranscriptStrandReadCount += rhs.forwardTranscriptStrandReadCount;
-      reverseTranscriptStrandReadCount += rhs.reverseTranscriptStrandReadCount;
     } else {
       bp1.merge(rhs.bp2, isExpandRegion);
       bp2.merge(rhs.bp1, isExpandRegion);
-      forwardTranscriptStrandReadCount += rhs.reverseTranscriptStrandReadCount;
-      reverseTranscriptStrandReadCount += rhs.forwardTranscriptStrandReadCount;
     }
 
     _isImprecise = (isImprecise() || rhs.isImprecise());
@@ -99,23 +95,11 @@ struct SVCandidate {
         isUnknownSizeInsertion = false;
         unknownSizeInsertionLeftSeq.clear();
         unknownSizeInsertionRightSeq.clear();
-        forwardTranscriptStrandReadCount = 0;
-        reverseTranscriptStrandReadCount = 0;
         isSingleJunctionFilter = false;
     }
 #endif
 
   void setPrecise() { _isImprecise = false; }
-
-  bool isForward() const { return (forwardTranscriptStrandReadCount > reverseTranscriptStrandReadCount); }
-
-  bool isTranscriptStrandKnown() const
-  {
-    return (
-        (std::max(forwardTranscriptStrandReadCount, reverseTranscriptStrandReadCount) + 1) /
-            (std::min(forwardTranscriptStrandReadCount, reverseTranscriptStrandReadCount) + 1) >=
-        2);
-  }
 
   /// if 1 is added to the position of one breakend (within the homologous breakend range), then is 1 also
   /// added to the other breakend?
@@ -129,9 +113,9 @@ struct SVCandidate {
   }
 
   /// Report the full spanning count
-  unsigned getPostAssemblySpanningCount(const bool isRNA) const
+  unsigned getPostAssemblySpanningCount() const
   {
-    if (!isRNA && isImprecise()) {
+    if (isImprecise()) {
       return bp1.getPairCount();
     } else {
       return bp1.getSpanningCount();
@@ -181,12 +165,6 @@ public:
 
   /// For an incomplete insertion, this is the known right side of the insert sequence
   std::string unknownSizeInsertionRightSeq;
-
-  /// Number of reads (pairs) supporting a direction from bp1 to bp2 (used for stranded RNA data)
-  unsigned forwardTranscriptStrandReadCount = 0;
-
-  /// Number of reads (pairs) directed from bp2 to bp1
-  unsigned reverseTranscriptStrandReadCount = 0;
 
   /// If true, this sv candidate should be filtered out based on information in the candidate's own single
   /// junction.

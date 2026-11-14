@@ -90,7 +90,6 @@ static void incrementSplitReadEvidence(
     const SRAlignmentInfo&                   altBp1SR,
     const SRAlignmentInfo&                   altBp2SR,
     const unsigned                           readMapQ,
-    const bool                               isRNA,
     SVSampleAlleleInfo&                      refAllele,
     SVSampleAlleleInfo&                      altAllele,
     SVFragmentEvidenceAlleleBreakendPerRead& refBp1Support,
@@ -106,9 +105,9 @@ static void incrementSplitReadEvidence(
   const float refAlignLlh(std::max(refBp1SR.alignLnLhood, refBp2SR.alignLnLhood));
   const float altAlignLlh(std::max(altBp1SR.alignLnLhood, altBp2SR.alignLnLhood));
 
-  // For DNA, a split read is considered supporting the breakend
+  // A split read is considered supporting the breakend
   // if the read's alignment to the allele with higher likelihood meets the evidence requirements
-  if (isRNA || (refAlignLlh > altAlignLlh)) {
+  if (refAlignLlh > altAlignLlh) {
     float       refBp1Evidence = refBp1SR.isEvidence ? refBp1SR.evidence : 0;
     float       refBp2Evidence = refBp2SR.isEvidence ? refBp2SR.evidence : 0;
     const float refEvidence(std::max(refBp1Evidence, refBp2Evidence));
@@ -117,7 +116,7 @@ static void incrementSplitReadEvidence(
         refBp1SR, refBp2SR, readMapQ, refEvidence, refAllele, refBp1Support, refBp2Support);
   }
 
-  if (isRNA || (altAlignLlh > refAlignLlh)) {
+  if (altAlignLlh > refAlignLlh) {
     float       altBp1Evidence = altBp1SR.isEvidence ? altBp1SR.evidence : 0;
     float       altBp2Evidence = altBp2SR.isEvidence ? altBp2SR.evidence : 0;
     const float altEvidence(std::max(altBp1Evidence, altBp2Evidence));
@@ -132,13 +131,9 @@ static void getReadSplitScore(
     const CallOptionsSharedDeriv&   dopt,
     const unsigned                  flankScoreSize,
     const SVId&                     svId,
-    const SVBreakend&               bp,
     const SVAlignmentInfo&          svAlignInfo,
-    const reference_contig_segment& bpRef,
-    const bool                      isBP1,
     const unsigned                  minMapQ,
     const unsigned                  minTier2MapQ,
-    const bool                      isRNA,
     const bool                      isShadow,
     const bool                      isReversedShadow,
     const bam_record&               bamRead,
@@ -169,8 +164,8 @@ static void getReadSplitScore(
           isSplitReadAlignable(readSize, svAlignInfo.bp2ContigSeq().size()))) {
       return;
     }
-    if ((!isRNA) && (!(isSplitReadAlignable(readSize, svAlignInfo.bp1ReferenceSeq().size()) &&
-                       isSplitReadAlignable(readSize, svAlignInfo.bp2ReferenceSeq().size())))) {
+    if (!(isSplitReadAlignable(readSize, svAlignInfo.bp1ReferenceSeq().size()) &&
+          isSplitReadAlignable(readSize, svAlignInfo.bp2ReferenceSeq().size()))) {
       return;
     }
   }
@@ -222,29 +217,22 @@ static void getReadSplitScore(
   // align the read to reference regions
   SRAlignmentInfo refBp1SR;
   SRAlignmentInfo refBp2SR;
-  if (!isRNA) {
-    splitReadAligner(
-        flankScoreSize,
-        readSeq,
-        dopt.refQ,
-        qual,
-        svAlignInfo.bp1ReferenceSeq(),
-        svAlignInfo.bp1RefOffset,
-        refBp1SR);
-    splitReadAligner(
-        flankScoreSize,
-        readSeq,
-        dopt.refQ,
-        qual,
-        svAlignInfo.bp2ReferenceSeq(),
-        svAlignInfo.bp2RefOffset,
-        refBp2SR);
-  } else {
-    if (isBP1)
-      getRefAlignment(bamRead, bpRef, bp.interval.range, dopt.refQ, refBp1SR);
-    else
-      getRefAlignment(bamRead, bpRef, bp.interval.range, dopt.refQ, refBp2SR);
-  }
+  splitReadAligner(
+      flankScoreSize,
+      readSeq,
+      dopt.refQ,
+      qual,
+      svAlignInfo.bp1ReferenceSeq(),
+      svAlignInfo.bp1RefOffset,
+      refBp1SR);
+  splitReadAligner(
+      flankScoreSize,
+      readSeq,
+      dopt.refQ,
+      qual,
+      svAlignInfo.bp2ReferenceSeq(),
+      svAlignInfo.bp2RefOffset,
+      refBp2SR);
 #ifdef DEBUG_SVS
   log_os << "\t reference align bp1: " << refBp1SR << "\n";
   log_os << "\t reference align bp2: " << refBp2SR << "\n";
@@ -258,7 +246,6 @@ static void getReadSplitScore(
       altBp1SR,
       altBp2SR,
       readMapQ,
-      isRNA,
       sample.ref,
       sample.alt,
       refBp1ReadSupport,
@@ -298,13 +285,10 @@ static void scoreSplitReads(
     const SVId&                     svId,
     const SVBreakend&               bp,
     const SVAlignmentInfo&          svAlignInfo,
-    const reference_contig_segment& bpRef,
-    const bool                      isBP1,
     const unsigned                  minMapQ,
     const unsigned                  minTier2MapQ,
     const int                       bamShadowSearchDistance,
     const unsigned                  shadowMinMapq,
-    const bool                      isRNA,
     SVEvidence::evidenceTrack_t&    sampleEvidence,
     bam_streamer&                   readStream,
     SVSampleInfo&                   sample,
@@ -344,13 +328,9 @@ static void scoreSplitReads(
           dopt,
           flankScoreSize,
           svId,
-          bp,
           svAlignInfo,
-          bpRef,
-          isBP1,
           minMapQ,
           minTier2MapQ,
-          isRNA,
           isShadow,
           isReversedShadow,
           bamRead,
@@ -404,13 +384,9 @@ static void scoreSplitReads(
           dopt,
           flankScoreSize,
           svId,
-          bp,
           svAlignInfo,
-          bpRef,
-          isBP1,
           minMapQ,
           minTier2MapQ,
-          isRNA,
           isShadow,
           isReversedShadow,
           bamRead,
@@ -495,13 +471,10 @@ void SVScorer::getSVSplitReadSupport(
         svId,
         sv.bp1,
         SVAlignInfo,
-        assemblyData.bp1ref,
-        true,
         minMapQ,
         minTier2MapQ,
         bamShadowSearchDistance,
         _scanOpt.minSingletonMapqCandidates,
-        _isRNA,
         sampleEvidence,
         bamStream,
         sample,
@@ -516,13 +489,10 @@ void SVScorer::getSVSplitReadSupport(
         svId,
         sv.bp2,
         SVAlignInfo,
-        assemblyData.bp2ref,
-        false,
         minMapQ,
         minTier2MapQ,
         bamShadowSearchDistance,
         _scanOpt.minSingletonMapqCandidates,
-        _isRNA,
         sampleEvidence,
         bamStream,
         sample,

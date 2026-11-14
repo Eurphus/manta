@@ -55,7 +55,7 @@ SVWriter::SVWriter(
     const char*            progName,
     const char*            progVersion)
   : opt(initOpt),
-    diploidSampleCount(opt.alignFileOpt.diploidSampleCount()),
+    diploidSampleCount(opt.alignFileOpt.alignmentFilenames.size()),
     candWriter(opt.referenceFilename, bamHeaderInfo, opt.candidateOutputFilename, opt.isOutputContig)
 {
   // First initialize the candidate VCF stream, which is always used
@@ -69,50 +69,19 @@ SVWriter::SVWriter(
   candWriter.setOverlappingAltHeader(isOverlappingAltHeader);
   candWriter.writeHeader(progName, progVersion, noSampleNames);
 
-  // Next initialize the model-specific VCF stream(s), each of which is only used for certain calling modes:
+  // Next initialize the germline VCF stream:
   //
-
   const auto sampleNames(getSampleNamesFromBamFiles(opt));
-  if (opt.isTumorOnly()) {
-    tumorWriter.reset(new VcfWriterTumorSV(
-        opt.tumorOpt,
-        (!opt.chromDepthFilename.empty()),
-        opt.referenceFilename,
-        bamHeaderInfo,
-        opt.tumorOutputFilename,
-        opt.isOutputContig));
-    tumorWriter->setOverlappingAltHeader(isOverlappingAltHeader);
-    tumorWriter->writeHeader(progName, progVersion, sampleNames);
-  } else if (opt.isRNA) {
-    rnaWriter.reset(
-        new VcfWriterRnaSV(opt.referenceFilename, bamHeaderInfo, opt.rnaOutputFilename, opt.isOutputContig));
-    rnaWriter->setOverlappingAltHeader(isOverlappingAltHeader);
-    rnaWriter->writeHeader(progName, progVersion, sampleNames);
-  } else {
-    std::vector<std::string> diploidSampleNames(
-        sampleNames.begin(), sampleNames.begin() + diploidSampleCount);
-    diploidWriter.reset(new VcfWriterDiploidSV(
-        opt.diploidOpt,
-        (!opt.chromDepthFilename.empty()),
-        opt.referenceFilename,
-        bamHeaderInfo,
-        opt.diploidOutputFilename,
-        opt.isOutputContig));
-    diploidWriter->setOverlappingAltHeader(isOverlappingAltHeader);
-    diploidWriter->writeHeader(progName, progVersion, diploidSampleNames);
-
-    if (opt.isSomatic()) {
-      somWriter.reset(new VcfWriterSomaticSV(
-          opt.somaticOpt,
-          (!opt.chromDepthFilename.empty()),
-          opt.referenceFilename,
-          bamHeaderInfo,
-          opt.somaticOutputFilename,
-          opt.isOutputContig));
-      somWriter->setOverlappingAltHeader(isOverlappingAltHeader);
-      somWriter->writeHeader(progName, progVersion, sampleNames);
-    }
-  }
+  assert(sampleNames.size() == diploidSampleCount);
+  diploidWriter.reset(new VcfWriterDiploidSV(
+      opt.diploidOpt,
+      (!opt.chromDepthFilename.empty()),
+      opt.referenceFilename,
+      bamHeaderInfo,
+      opt.diploidOutputFilename,
+      opt.isOutputContig));
+  diploidWriter->setOverlappingAltHeader(isOverlappingAltHeader);
+  diploidWriter->writeHeader(progName, progVersion, sampleNames);
 }
 
 static bool isAnyFalse(const std::vector<bool>& vb)
@@ -160,7 +129,6 @@ void SVWriter::writeSV(
   event.junctionCount = unfilteredJunctionCount;
 
   bool isMJEventWriteDiploid(false);
-  bool isMJEventWriteSomatic(false);
 
   std::vector<bool> isJunctionSampleCheckFail(diploidSampleCount, false);
 
@@ -234,24 +202,13 @@ void SVWriter::writeSV(
 
       const SVModelScoreInfo& modelScoreInfo(mjModelScoreInfo[junctionIndex]);
 
-      // for diploid case only,
       // we decide to use multi-junction or single junction based on best score:
-      // (for somatic case a lower somatic score could be due to reference evidence in an event member)
       //
       if (mjJointModelScoreInfo.diploid.filters.size() > modelScoreInfo.diploid.filters.size()) {
         isMJDiploidEvent = false;
       } else if (mjJointModelScoreInfo.diploid.altScore < modelScoreInfo.diploid.altScore) {
         isMJDiploidEvent = false;
       }
-
-      // for somatic case,
-      // report multi-junction if either the multi-junction OR ANY single junction has a good score.
-      if ((mjJointModelScoreInfo.somatic.somaticScore >= opt.somaticOpt.minOutputSomaticScore) ||
-          (modelScoreInfo.somatic.somaticScore >= opt.somaticOpt.minOutputSomaticScore)) {
-        isMJEventWriteSomatic = true;
-      }
-
-      // TODO: set up criteria for isMJEventWriteTumor
     }
 
     // for events, we write all junctions, or no junctions,
@@ -274,81 +231,43 @@ void SVWriter::writeSV(
     const SVScoreInfo&     baseScoringInfo(modelScoreInfo.base);
     static const EventInfo nonEvent;
 
-    if (opt.isTumorOnly()) {
-      // TODO: add logic for MJEvent
+    const EventInfo&        diploidEvent(isMJDiploidEvent ? event : nonEvent);
+    const SVModelScoreInfo& scoreInfo(isMJDiploidEvent ? mjJointModelScoreInfo : modelScoreInfo);
+    SVScoreInfoDiploid      diploidInfo(scoreInfo.diploid);
 
-      const SVScoreInfoTumor& tumorInfo(modelScoreInfo.tumor);
-      tumorWriter->writeSV(svData, assemblyData, sv, svId, baseScoringInfo, tumorInfo, nonEvent);
-    } else if (opt.isRNA) {
-      const SVScoreInfoRna& rnaInfo(modelScoreInfo.rna);
-      rnaWriter->writeSV(svData, assemblyData, sv, svId, baseScoringInfo, rnaInfo, nonEvent);
-    } else {
-      {
-        const EventInfo&        diploidEvent(isMJDiploidEvent ? event : nonEvent);
-        const SVModelScoreInfo& scoreInfo(isMJDiploidEvent ? mjJointModelScoreInfo : modelScoreInfo);
-        SVScoreInfoDiploid      diploidInfo(scoreInfo.diploid);
-
-        if (isMJDiploidEvent) {
-          // if one sample failed the genotype check,
-          // use the sample-specific diploid scoreInfo, instead of the joint scoreInfo
-          for (unsigned sampleIndex(0); sampleIndex < diploidSampleCount; ++sampleIndex) {
-            if (isJunctionSampleCheckFail[sampleIndex]) {
+    if (isMJDiploidEvent) {
+      // if one sample failed the genotype check,
+      // use the sample-specific diploid scoreInfo, instead of the joint scoreInfo
+      for (unsigned sampleIndex(0); sampleIndex < diploidSampleCount; ++sampleIndex) {
+        if (isJunctionSampleCheckFail[sampleIndex]) {
 #ifdef DEBUG_GSV
-              log_os << __FUNCTION__ << ": Junction #" << junctionIndex
-                     << ": Swapped diploid info for sample #" << sampleIndex << ".\n"
-                     << "Before:" << diploidInfo.samples[sampleIndex] << "\n"
-                     << "After:" << modelScoreInfo.diploid.samples[sampleIndex] << "\n";
+          log_os << __FUNCTION__ << ": Junction #" << junctionIndex
+                 << ": Swapped diploid info for sample #" << sampleIndex << ".\n"
+                 << "Before:" << diploidInfo.samples[sampleIndex] << "\n"
+                 << "After:" << modelScoreInfo.diploid.samples[sampleIndex] << "\n";
 #endif
-              diploidInfo.samples[sampleIndex] = modelScoreInfo.diploid.samples[sampleIndex];
-            }
-          }
-        }
-
-        bool isWriteDiploid(false);
-        if (isMJDiploidEvent) {
-          isWriteDiploid = isMJEventWriteDiploid;
-        } else {
-          isWriteDiploid = (modelScoreInfo.diploid.altScore >= opt.diploidOpt.minOutputAltScore);
-        }
-
-        if (isWriteDiploid) {
-          diploidWriter->writeSV(
-              svData,
-              assemblyData,
-              sv,
-              svId,
-              baseScoringInfo,
-              diploidInfo,
-              diploidEvent,
-              modelScoreInfo.diploid);
+          diploidInfo.samples[sampleIndex] = modelScoreInfo.diploid.samples[sampleIndex];
         }
       }
+    }
 
-      if (opt.isSomatic()) {
-        const EventInfo&          somaticEvent(isMJEvent ? event : nonEvent);
-        const SVModelScoreInfo&   scoreInfo(isMJEvent ? mjJointModelScoreInfo : modelScoreInfo);
-        const SVScoreInfoSomatic& somaticInfo(scoreInfo.somatic);
+    bool isWriteDiploid(false);
+    if (isMJDiploidEvent) {
+      isWriteDiploid = isMJEventWriteDiploid;
+    } else {
+      isWriteDiploid = (modelScoreInfo.diploid.altScore >= opt.diploidOpt.minOutputAltScore);
+    }
 
-        bool isWriteSomatic(false);
-
-        if (isMJEvent) {
-          isWriteSomatic = isMJEventWriteSomatic;
-        } else {
-          isWriteSomatic = (modelScoreInfo.somatic.somaticScore >= opt.somaticOpt.minOutputSomaticScore);
-        }
-
-        if (isWriteSomatic) {
-          somWriter->writeSV(
-              svData,
-              assemblyData,
-              sv,
-              svId,
-              baseScoringInfo,
-              somaticInfo,
-              somaticEvent,
-              modelScoreInfo.somatic);
-        }
-      }
+    if (isWriteDiploid) {
+      diploidWriter->writeSV(
+          svData,
+          assemblyData,
+          sv,
+          svId,
+          baseScoringInfo,
+          diploidInfo,
+          diploidEvent,
+          modelScoreInfo.diploid);
     }
   }
 }

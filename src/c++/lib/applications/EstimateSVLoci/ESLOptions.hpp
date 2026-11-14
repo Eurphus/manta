@@ -45,9 +45,6 @@ struct ESLOptions {
   std::vector<std::string> regions;
   std::string              statsFilename;
   std::string              chromDepthFilename;
-
-  /// TODO remove the need for this bool by having a single overlap pair handler
-  bool isRNA = false;
 };
 
 void parseESLOptions(const illumina::Program& prog, int argc, char* argv[], ESLOptions& opt);

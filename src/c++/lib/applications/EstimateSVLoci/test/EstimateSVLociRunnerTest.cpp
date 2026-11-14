@@ -55,7 +55,6 @@ struct ConstructTestEstimateSVLociRunner {
     eslOpt.statsFilename     = _statsFileMaker.getFilename();
 
     eslOpt.alignFileOpt.alignmentFilenames = bamFiles;
-    eslOpt.alignFileOpt.isAlignmentTumor   = {false};
 
     _eslRunnPtr = boost::make_unique<EstimateSVLociRunner>(eslOpt);
   }

@@ -25,31 +25,22 @@
 
 #include "manta/SVScoreInfo.hpp"
 #include "manta/SVScoreInfoDiploid.hpp"
-#include "manta/SVScoreInfoRna.hpp"
-#include "manta/SVScoreInfoSomatic.hpp"
-#include "manta/SVScoreInfoTumor.hpp"
 
 /// All scoring info for one sv candidate, including data related to specific scoring models
 ///
 struct SVModelScoreInfo {
-  void setSampleCount(const unsigned sampleCount, const unsigned diploidSampleCount)
+  void setSampleCount(const unsigned sampleCount)
   {
     base.setSampleCount(sampleCount);
-    diploid.setSampleCount(diploidSampleCount);
+    diploid.setSampleCount(sampleCount);
   }
 
   void clear()
   {
     base.clear();
     diploid.clear();
-    somatic.clear();
-    tumor.clear();
-    rna.clear();
   }
 
   SVScoreInfo        base;
   SVScoreInfoDiploid diploid;
-  SVScoreInfoRna     rna;
-  SVScoreInfoSomatic somatic;
-  SVScoreInfoTumor   tumor;
 };

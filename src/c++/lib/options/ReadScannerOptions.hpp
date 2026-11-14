@@ -27,8 +27,8 @@ struct ReadScannerOptions {
   ///
   unsigned minMapq = 15;
 
-  /// \brief Reads with MAPQ below this value may be considered in the normal sample as part of the 'tier2'
-  /// evidence to help disprove a somatic candidate via the existence of weak candidate evidence in the normal
+  /// \brief Reads with MAPQ down to this value are recorded as permissive ('tier2') evidence. The germline
+  /// model does not use tier2 evidence, it was used to disprove somatic candidates.
   unsigned minTier2Mapq = 5;
 
   /// \brief Probability used to create fragment size quantile range for reported breakend regions
@@ -78,11 +78,6 @@ struct ReadScannerOptions {
   /// \brief Minimum length required of a poorly aligned read end-segment for it to be treated as SV evidence.
   unsigned minSemiAlignedMismatchLen = 8;
 
-  /// \brief Minimum length of a cis SV candidate in RNA data
-  unsigned minRNACisLength = 100000;
-  /// \brief Minimum length of any SV candidate in RNA data
-  unsigned minRNALength = 1000;
-
   /// \brief Minimum mapping quality for shadow mate used to build SV adjacency graph
   unsigned minSingletonMapqGraph = 30;
 
@@ -94,8 +89,6 @@ struct ReadScannerOptions {
 
   /// \brief If true, do not treat reads with the 'proper pair' bit set as SV evidence.
   ///
-  /// This is typically set true for RNA-Seq analysis, where proper-pair is used to signal intron-spanning
-  /// pairs.
   bool isIgnoreAnomProperPair = false;
 
   /// \brief The maximum depth factor at which input reads are considered in graph creation/assembly, etc.

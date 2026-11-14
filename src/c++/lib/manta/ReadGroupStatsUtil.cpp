@@ -439,8 +439,7 @@ struct ReadGroupTracker {
       // The current implementation for defaultStats assumes that the
       // provided defaultStats file contains only 1 ReadGroupStatsSet
       // and uses this for every _rgLabel for which stats determination
-      // fails. However, in more sophisticated scenarios including
-      // variant calling of paired tumor-normal samples, the developer
+      // fails. However, in more sophisticated scenarios the developer
       // may want to provide a functionality of using a defaultStats
       // file containing multiple ReadGroupStatsSet which will be chosen
       // based on origin of the sample.

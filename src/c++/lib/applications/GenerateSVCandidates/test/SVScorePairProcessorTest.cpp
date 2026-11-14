@@ -39,17 +39,16 @@ BOOST_AUTO_TEST_SUITE(SVScorePairProcessor_test_suite)
 // 4. Accept a mapped read of an innie pair (with mapped mate)
 BOOST_AUTO_TEST_CASE(test_isSkipRecord)
 {
-  const std::vector<bool>         bamTumorNormalInfo = {false};
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options(false);
+  const PairOptions               options;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
       "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
   SVEvidence              evidence;
   SVScorePairRefProcessor processor(
-      bamTumorNormalInfo, scanner.operator*(), options, candidate, true, evidence);
+      scanner.operator*(), options, candidate, true, evidence);
 
   std::string querySeq1 = "TCTATCACCCATTTTACCACTCACGGGAGCTCTCC";
   // BamRecord1 is mapped and its mate is unmapped
@@ -86,17 +85,16 @@ BOOST_AUTO_TEST_CASE(test_isSkipRecord)
 // Threshold for large sv is 100.
 BOOST_AUTO_TEST_CASE(test_isLargeInsertSV)
 {
-  const std::vector<bool>         bamTumorNormalInfo = {false};
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options(false);
+  const PairOptions               options;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
       "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
   SVEvidence              evidence;
   SVScorePairRefProcessor processor(
-      bamTumorNormalInfo, scanner.operator*(), options, candidate, true, evidence);
+      scanner.operator*(), options, candidate, true, evidence);
   // Size of insert sequence is 102 (>100)
   BOOST_REQUIRE(processor.isLargeInsertSV(candidate));
 
@@ -112,17 +110,16 @@ BOOST_AUTO_TEST_CASE(test_isLargeInsertSV)
 // 4. Ignore secondary reads with no SA tag
 BOOST_AUTO_TEST_CASE(test_SkipRecordCore)
 {
-  const std::vector<bool>         bamTumorNormalInfo = {false};
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options(false);
+  const PairOptions               options;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
       "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
   SVEvidence              evidence;
   SVScorePairRefProcessor processor(
-      bamTumorNormalInfo, scanner.operator*(), options, candidate, true, evidence);
+      scanner.operator*(), options, candidate, true, evidence);
 
   // PCR duplicate read
   bam_record bamRecord1;
@@ -172,11 +169,10 @@ BOOST_AUTO_TEST_CASE(test_SkipRecordCore)
 // fragment length) + 1 where min threshold for fragment length = 50 in manta.
 BOOST_AUTO_TEST_CASE(test_nextBAMIndex)
 {
-  const std::vector<bool> bamFileInfo = {false};  // whether normal bam or tumor bam file
   const bam_header_info   bamHeader(buildTestBamHeader());
   // Created a locus scanner such that min fragment length = 50 and max fragment length = 125
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options(false);  // false means DNA options
+  const PairOptions               options;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
@@ -185,7 +181,7 @@ BOOST_AUTO_TEST_CASE(test_nextBAMIndex)
   candidate.bp2.interval.range = known_pos_range2(150, 151);
   SVEvidence evidence;
   // isBP1 = true. So search range is calculated around BP1.
-  SVScorePairRefProcessor processor1(bamFileInfo, scanner.operator*(), options, candidate, true, evidence);
+  SVScorePairRefProcessor processor1(scanner.operator*(), options, candidate, true, evidence);
   // center positin of BP1 = 100
   // So range start = 100 - (125-50) = 25
   // range end = 100 + (125-50) + 1 = 176
@@ -194,7 +190,7 @@ BOOST_AUTO_TEST_CASE(test_nextBAMIndex)
   BOOST_REQUIRE_EQUAL(genomeInterval.range.end_pos(), 176);
 
   // isBP1 = false. So search range is calculated around BP2.
-  SVScorePairRefProcessor processor2(bamFileInfo, scanner.operator*(), options, candidate, false, evidence);
+  SVScorePairRefProcessor processor2(scanner.operator*(), options, candidate, false, evidence);
   // center position of BP2 = 150
   // So range start = 150 - (125-50) = 75
   // range end = 150 + (125-50) + 1 = 226

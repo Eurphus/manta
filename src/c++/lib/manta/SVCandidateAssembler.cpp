@@ -60,15 +60,13 @@ SVCandidateAssembler::SVCandidateAssembler(
     const std::string&          chromDepthFilename,
     const bam_header_info&      bamHeader,
     const AllSampleReadCounts&  counts,
-    const bool                  isRNA,
     TimeTracker&                remoteReadRetrievalTime)
   : _scanOpt(scanOpt),
     _assembleOpt(assembleOpt),
-    _isAlignmentTumor(alignFileOpt.isAlignmentTumor),
     _dFilter(chromDepthFilename, scanOpt.maxDepthFactor, bamHeader),
     _dFilterLocalDepthForRemoteReadRetrieval(
         chromDepthFilename, scanOpt.maxLocalDepthFactorForRemoteReadRetrieval, bamHeader),
-    _readScanner(_scanOpt, statsFilename, alignFileOpt.alignmentFilenames, isRNA),
+    _readScanner(_scanOpt, statsFilename, alignFileOpt.alignmentFilenames),
     _remoteReadRetrievalTime(remoteReadRetrievalTime)
 {
   openBamStreams(referenceFilename, alignFileOpt.alignmentFilenames, _bamStreams);
@@ -331,9 +329,7 @@ void SVCandidateAssembler::getBreakendReads(
   }
   const pos_t           searchBeginPos(searchRange.begin_pos());
   const pos_t           searchEndPos(searchRange.end_pos());
-  std::vector<unsigned> normalDepthBuffer(searchRange.size(), 0);
-
-  bool isFirstTumor(false);
+  std::vector<unsigned> depthBuffer(searchRange.size(), 0);
 
   static const unsigned maxNumReads(1000);
 
@@ -351,17 +347,9 @@ void SVCandidateAssembler::getBreakendReads(
 #ifdef REMOTE_NOISE_RATE
   static const unsigned countWindow(200);
   CircularCounter       normalRemoteRate(countWindow);
-  CircularCounter       tumorRemoteRate(countWindow);
 #endif
 
   for (unsigned bamIndex(0); bamIndex < bamCount; ++bamIndex) {
-    const bool isTumor(_isAlignmentTumor[bamIndex]);
-
-    // assert that the expected sample order is all normal samples first,
-    // followed by all tumor samples
-    if (isTumor) isFirstTumor = true;
-    assert((!isFirstTumor) || isTumor);
-
     const std::string bamIndexStr(boost::lexical_cast<std::string>(bamIndex));
 
     bam_streamer& bamStream(*_bamStreams[bamIndex]);
@@ -378,7 +366,7 @@ void SVCandidateAssembler::getBreakendReads(
 #endif
 
 #ifdef REMOTE_NOISE_RATE
-    CircularCounter& remoteRate(isTumor ? tumorRemoteRate : normalRemoteRate);
+    CircularCounter& remoteRate(normalRemoteRate);
 #endif
 
     while (bamStream.next()) {
@@ -401,12 +389,10 @@ void SVCandidateAssembler::getBreakendReads(
       // Filter reads which won't be used in assembly:
       //
       if (isMaxDepth) {
-        if (!isTumor) {
-          // also filter out unmapped reads here to stay in sync with process used to estimate expected
-          // depth:
-          if (!bamRead.is_unmapped()) {
-            addReadToDepthEst(bamRead, searchBeginPos, normalDepthBuffer);
-          }
+        // also filter out unmapped reads here to stay in sync with process used to estimate expected
+        // depth:
+        if (!bamRead.is_unmapped()) {
+          addReadToDepthEst(bamRead, searchBeginPos, depthBuffer);
         }
       }
 
@@ -415,10 +401,10 @@ void SVCandidateAssembler::getBreakendReads(
       if (isMaxDepth) {
         assert(refPos < searchEndPos);
         const pos_t depthOffset(refPos - searchBeginPos);
-        if ((depthOffset >= 0) && (normalDepthBuffer[depthOffset] > maxLocalDepthForRemoteReadRetrieval)) {
+        if ((depthOffset >= 0) && (depthBuffer[depthOffset] > maxLocalDepthForRemoteReadRetrieval)) {
           isMaxLocalDepthForRemoteReadRetrievalTriggered = true;
         }
-        if ((depthOffset >= 0) && (normalDepthBuffer[depthOffset] > maxDepth)) {
+        if ((depthOffset >= 0) && (depthBuffer[depthOffset] > maxDepth)) {
           continue;
         }
       }
@@ -573,8 +559,7 @@ void SVCandidateAssembler::getBreakendReads(
   // check if peak rate for both samples is not above expectation
   {
     const bool isNormalSignal(isSampleSignal(normalRemoteRate, _normalBackgroundRemoteRate));
-    const bool isTumorSignal(isSampleSignal(tumorRemoteRate, _tumorBackgroundRemoteRate));
-    if (!(isNormalSignal || isTumorSignal)) {
+    if (!isNormalSignal) {
       isRetrieveRemoteReads = false;
     }
   }

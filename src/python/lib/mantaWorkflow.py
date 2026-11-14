@@ -187,7 +187,7 @@ def runStats(self,taskPrefix="",dependencies=None) :
     tmpStatsFiles = []
     statsTasks = set()
 
-    for (bamIndex,bamPath) in enumerate(self.params.normalBamList + self.params.tumorBamList) :
+    for (bamIndex,bamPath) in enumerate(self.params.normalBamList) :
         indexStr = str(bamIndex).zfill(3)
         tmpStatsFiles.append(os.path.join(tmpStatsDir,statsFilename+"."+ indexStr +".xml"))
 
@@ -219,12 +219,8 @@ def runStats(self,taskPrefix="",dependencies=None) :
 
 
 def mantaGetDepthFromAlignments(self,taskPrefix="getChromDepth",dependencies=None):
-    bamList=[]
-    if len(self.params.normalBamList) :
-        bamList = self.params.normalBamList
-    elif len(self.params.tumorBamList) :
-        bamList = self.params.tumorBamList
-    else :
+    bamList = self.params.normalBamList
+    if len(bamList) == 0 :
         return set()
 
     outputPath=self.paths.getChromDepth()
@@ -265,16 +261,9 @@ def runLocusGraph(self,taskPrefix="",dependencies=None):
         graphCmd.extend(["--ref",self.params.referenceFasta])
         for bamPath in self.params.normalBamList :
             graphCmd.extend(["--align-file",bamPath])
-        for bamPath in self.params.tumorBamList :
-            graphCmd.extend(["--tumor-align-file",bamPath])
 
         if self.params.isHighDepthFilter :
             graphCmd.extend(["--chrom-depth", self.paths.getChromDepth()])
-
-        if self.params.isIgnoreAnomProperPair :
-            graphCmd.append("--ignore-anom-proper-pair")
-        if self.params.isRNA :
-            graphCmd.append("--rna")
 
         graphTask=preJoin(taskPrefix,"makeLocusGraph_"+gid)
         graphTasks.add(self.addTask(graphTask,graphCmd,dependencies=dirTask,memMb=self.params.estimateMemMb))
@@ -332,7 +321,7 @@ class listFileWorkflow(WorkflowRunner) :
 
 def sortEvidenceBams(self, sortBamTasks, taskPrefix="", binStr="", dependencies=None):
 
-    for bamIdx, _ in enumerate(self.params.normalBamList + self.params.tumorBamList):
+    for bamIdx, _ in enumerate(self.params.normalBamList):
         supportBam = self.paths.getSupportBamPath(bamIdx, binStr)
         sortedBam = self.paths.getSortedSupportBamPath(bamIdx, binStr)
 
@@ -413,15 +402,6 @@ def sortAllVcfs(self, taskPrefix="", dependencies=None) :
              self.paths.getSortedDiploidPath(),
              "sortDiploidSV",
              isDiploid=True)
-    sortVcfs(self.somaticVcfPaths,
-             self.paths.getSortedSomaticPath(),
-             "sortSomaticSV")
-    sortVcfs(self.tumorVcfPaths,
-             self.paths.getSortedTumorPath(),
-             "sortTumorSV")
-    sortVcfs(self.rnaVcfPaths,
-             self.paths.getSortedRnaPath(),
-             "sortRnaSV")
 
     def getExtractSmallCmd(maxSize, inPath, outPath) :
         cmd  = "\"%s\" -dc \"%s\"" % (self.params.bgzipBin, inPath)
@@ -444,7 +424,7 @@ def sortAllVcfs(self, taskPrefix="", dependencies=None) :
 
 def mergeEvidenceBams(self, mergeBamTasks, taskPrefix="", dependencies=None) :
 
-    for bamIdx, bamPath in enumerate(self.params.normalBamList + self.params.tumorBamList) :
+    for bamIdx, bamPath in enumerate(self.params.normalBamList) :
         # merge support bams
         evidenceBamFile = self.paths.getFinalSupportBamPath(bamPath, bamIdx)
         mergeCmd = [ sys.executable, self.params.mantaMergeBam,
@@ -479,18 +459,12 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
     makeHyGenDirCmd = getMkdirCmd() + [hygenDir]
     dirTask = self.addTask(preJoin(taskPrefix,"makeHyGenDir"), makeHyGenDirCmd, dependencies=dependencies, isForceLocal=True)
 
-    isTumorNormal = (len(self.params.normalBamList) and len(self.params.tumorBamList))
-    isTumorOnly = ((not isTumorNormal) and len(self.params.tumorBamList))
-
     hygenTasks=set()
     if self.params.isGenerateSupportBam :
         sortEvidenceBamTasks = set()
 
     self.candidateVcfPaths = []
     self.diploidVcfPaths = []
-    self.somaticVcfPaths = []
-    self.tumorVcfPaths = []
-    self.rnaVcfPaths = []
 
     edgeRuntimeLogPaths = []
 
@@ -498,14 +472,7 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
         binId = 0
         binStr = str(binId).zfill(4)
         self.candidateVcfPaths.append(self.paths.getHyGenCandidatePath(binStr))
-        if isTumorOnly :
-            self.tumorVcfPaths.append(self.paths.getHyGenTumorPath(binStr))
-        elif self.params.isRNA:
-            self.rnaVcfPaths.append(self.paths.getHyGenRnaPath(binStr))
-        else:
-            self.diploidVcfPaths.append(self.paths.getHyGenDiploidPath(binStr))
-            if isTumorNormal :
-                self.somaticVcfPaths.append(self.paths.getHyGenSomaticPath(binStr))
+        self.diploidVcfPaths.append(self.paths.getHyGenDiploidPath(binStr))
 
         hygenCmd = [ self.params.mantaHyGenBin ]
         hygenCmd.extend(["--threads", str(self.getNCores())])
@@ -520,36 +487,19 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
         hygenCmd.extend(["--ref",self.params.referenceFasta])
         hygenCmd.extend(["--candidate-output-file", self.candidateVcfPaths[-1]])
 
-        # tumor-only mode
-        if isTumorOnly :
-            hygenCmd.extend(["--tumor-output-file", self.tumorVcfPaths[-1]])
-        elif self.params.isRNA:
-            hygenCmd.extend(["--rna-output-file", self.rnaVcfPaths[-1]])
-        else:
-            hygenCmd.extend(["--diploid-output-file", self.diploidVcfPaths[-1]])
-            hygenCmd.extend(["--min-qual-score", self.params.minDiploidVariantScore])
-            hygenCmd.extend(["--min-pass-qual-score", self.params.minPassDiploidVariantScore])
-            hygenCmd.extend(["--min-pass-gt-score", self.params.minPassDiploidGTScore])
-            if not self.params.enableTandemDupModel :
-                hygenCmd.append("--no-tandem-dup-model")
-            if self.params.filterUncertainZygosity :
-                hygenCmd.append("--filter-uncertain-zygosity")
-            if not self.params.reportDepthRatio :
-                hygenCmd.append("--no-depth-ratio")
-            # tumor/normal mode
-            if isTumorNormal :
-                hygenCmd.extend(["--somatic-output-file", self.somaticVcfPaths[-1]])
-                hygenCmd.extend(["--min-somatic-score", self.params.minSomaticScore])
-                hygenCmd.extend(["--min-pass-somatic-score", self.params.minPassSomaticScore])
+        hygenCmd.extend(["--diploid-output-file", self.diploidVcfPaths[-1]])
+        hygenCmd.extend(["--min-qual-score", self.params.minDiploidVariantScore])
+        hygenCmd.extend(["--min-pass-qual-score", self.params.minPassDiploidVariantScore])
+        hygenCmd.extend(["--min-pass-gt-score", self.params.minPassDiploidGTScore])
+        if not self.params.enableTandemDupModel :
+            hygenCmd.append("--no-tandem-dup-model")
+        if self.params.filterUncertainZygosity :
+            hygenCmd.append("--filter-uncertain-zygosity")
+        if not self.params.reportDepthRatio :
+            hygenCmd.append("--no-depth-ratio")
 
         # Setup remote read retrieval for insertions:
-        def isEnableRemoteReadRetrieval() :
-            if isTumorOnly or isTumorNormal :
-                return self.params.enableRemoteReadRetrievalForInsertionsInCancerCallingModes
-            else :
-                return self.params.enableRemoteReadRetrievalForInsertionsInGermlineCallingModes
-
-        if isEnableRemoteReadRetrieval() :
+        if self.params.enableRemoteReadRetrievalForInsertionsInGermlineCallingModes :
             hygenCmd.append("--enable-remote-read-retrieval")
 
         if self.params.isHighDepthFilter :
@@ -566,22 +516,13 @@ def runHyGen(self, taskPrefix="", dependencies=None) :
 
         for bamPath in self.params.normalBamList :
             hygenCmd.extend(["--align-file", bamPath])
-        for bamPath in self.params.tumorBamList :
-            hygenCmd.extend(["--tumor-align-file", bamPath])
 
-        if self.params.isIgnoreAnomProperPair :
-            hygenCmd.append("--ignore-anom-proper-pair")
 
         if self.params.useOverlapPairEvidence:
             hygenCmd.append("--use-overlapping-pair")
 
         if not self.params.enableEvidenceSignalFilter :
             hygenCmd.append("--skip-evidence-signal-filter")
-
-        if self.params.isRNA :
-            hygenCmd.append("--rna")
-            if self.params.isUnstrandedRNA :
-                hygenCmd.append("--unstranded")
 
         if self.params.isOutputContig :
             hygenCmd.append("--output-contigs")
@@ -692,24 +633,6 @@ class PathInfo:
     def getSortedDiploidPath(self) :
         return os.path.join(self.params.variantsDir,"diploidSV.vcf.gz")
 
-    def getHyGenSomaticPath(self, binStr) :
-        return os.path.join(self.getHyGenDir(),"somaticSV.%s.vcf" % (binStr))
-
-    def getHyGenTumorPath(self, binStr) :
-        return os.path.join(self.getHyGenDir(),"tumorSV.%s.vcf" % (binStr))
-
-    def getHyGenRnaPath(self, binStr) :
-        return os.path.join(self.getHyGenDir(),"rnaFusion.%s.vcf" % (binStr))
-
-    def getSortedSomaticPath(self) :
-        return os.path.join(self.params.variantsDir,"somaticSV.vcf.gz")
-
-    def getSortedTumorPath(self) :
-        return os.path.join(self.params.variantsDir,"tumorSV.vcf.gz")
-
-    def getSortedRnaPath(self) :
-        return os.path.join(self.params.variantsDir,"rnaSV.vcf.gz")
-
     def getHyGenEdgeRuntimeLogPath(self, binStr) :
         return os.path.join(self.getHyGenDir(),"edgeRuntimeLog.%s.txt" % (binStr))
 
@@ -775,7 +698,6 @@ class MantaWorkflow(WorkflowRunner) :
 
         # normalize boolean option input:
         safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInGermlineCallingModes")
-        safeSetBool(self.params,"enableRemoteReadRetrievalForInsertionsInCancerCallingModes")
         safeSetBool(self.params,"useOverlapPairEvidence")
         safeSetBool(self.params,"enableEvidenceSignalFilter", default=True)
         safeSetBool(self.params,"enableInsertionContigMerge", default=True)
@@ -784,13 +706,8 @@ class MantaWorkflow(WorkflowRunner) :
         safeSetBool(self.params,"filterUncertainZygosity")
         safeSetBool(self.params,"reportDepthRatio", default=True)
 
-        # Use RNA option for minCandidate size
-        if self.params.isRNA:
-            self.params.minCandidateVariantSize = self.params.rnaMinCandidateVariantSize
-
         # format bam lists:
         if self.params.normalBamList is None : self.params.normalBamList = []
-        if self.params.tumorBamList is None : self.params.tumorBamList = []
 
         # make sure run directory is setup:
         self.params.runDir=os.path.abspath(self.params.runDir)
@@ -827,12 +744,7 @@ class MantaWorkflow(WorkflowRunner) :
 
         self.paths = PathInfo(self.params)
 
-        self.params.isHighDepthFilter = (not (self.params.isExome or self.params.isRNA))
-        self.params.isIgnoreAnomProperPair = (self.params.isRNA)
-
-        # always use overlapping pairs for RNA calling
-        if (self.params.isRNA) :
-            self.params.useOverlapPairEvidence = True
+        self.params.isHighDepthFilter = (not self.params.isExome)
 
 
     def setCallMemMb(self) :

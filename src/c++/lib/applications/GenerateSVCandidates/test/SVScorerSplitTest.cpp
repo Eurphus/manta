@@ -140,7 +140,6 @@ BOOST_AUTO_TEST_CASE(test_incrementSplitReadEvidence)
       altBp1SR1,
       altBp2SR1,
       50,
-      false,
       refSVSampleAlleleInfo,
       altSVSampleAlleleInfo,
       refBp1Support1,
@@ -171,7 +170,6 @@ BOOST_AUTO_TEST_CASE(test_incrementSplitReadEvidence)
       altBp1SR1,
       altBp2SR1,
       20,
-      false,
       refSVSampleAlleleInfo,
       altSVSampleAlleleInfo,
       refBp1Support1,
@@ -265,13 +263,10 @@ BOOST_AUTO_TEST_CASE(test_AlignmentInfo_When_Reference_Haplotype_Wins)
       id,
       breakend,
       alignmentInfo,
-      reference,
-      true,
       15,
       10,
       0,
       0,
-      false,
       evidence,
       bamStream.operator*(),
       sample,
@@ -354,13 +349,10 @@ BOOST_AUTO_TEST_CASE(test_AlignmentInfo_When_Allele_Haplotype_Wins)
       id,
       breakend,
       alignmentInfo,
-      reference,
-      true,
       15,
       10,
       0,
       0,
-      false,
       evidence,
       bamStream.operator*(),
       sample,
@@ -369,135 +361,6 @@ BOOST_AUTO_TEST_CASE(test_AlignmentInfo_When_Allele_Haplotype_Wins)
   BOOST_REQUIRE_EQUAL(sample.alt.splitReadCount, 1);
   BOOST_REQUIRE_EQUAL(sample.alt.splitReadMapQ, readsToAdd[0].map_qual() * readsToAdd[0].map_qual());
   BOOST_REQUIRE_EQUAL(sample.ref.splitReadCount, 0);
-}
-
-// Test the alignment information for RNA read
-// Test the following cases:
-// 1. RNA alignment info should not be updated based on the likelihood score
-// 2. RNA alignement info should be updated for both ref and alt allele whichever
-//    satisfies evidence criteria.
-BOOST_AUTO_TEST_CASE(test_AlignmentInfo_For_RNA)
-{
-  // Reference sequence at breakpoint-1
-  std::string refSeqBp1 =
-      "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
-      "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
-  // Contig sequence at breakpoint-1
-  std::string altContigSeqBp1 =
-      "GATCACAGGTCGATATCCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
-      "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
-  // Reference sequence at breakpoint-2
-  std::string refSeqBp2 =
-      "GATCACAGGTCTATCACCCATTTTACCACTCACGGGAGCTCTCCATGCATTTGGT"
-      "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
-  // Contig sequence at breakpoint-2
-  std::string altContigSeqBp2 =
-      "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
-      "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
-  // Options for  snp prior probability
-  CallOptionsShared optionsShared;
-  SVId              id;  // A pair of ids for both ends of a single SV junction
-  SVBreakend        breakend;
-  breakend.interval.range = known_pos_range2(23, 24);
-  reference_contig_segment reference;
-  reference.seq() = refSeqBp1;
-  // assembly data for  a specific sv candidate
-  SVCandidateAssemblyData svCandidateAssemblyData;
-  SVCandidate             candidate;
-  // The next four lines are hack to avoid construction of complex svCandidateAssemblyData
-  SVAlignmentInfo alignmentInfo(candidate, svCandidateAssemblyData);
-  const_cast<std::string&>(alignmentInfo.bp1ContigSeq()).assign(altContigSeqBp1);
-  const_cast<std::string&>(alignmentInfo.bp2ContigSeq()).assign(altContigSeqBp2);
-  // Gapless alignment starting point will be in between (offset_start - flankScoreSize) and
-  // (offset_end + flankScoreSize). In this test case flank score size is 17.
-  alignmentInfo.bp1ContigOffset = known_pos_range2(18, 19);
-  alignmentInfo.bp2ContigOffset = known_pos_range2(24, 25);
-
-  SVEvidence::evidenceTrack_t evidence1;        // this will track all support data for a sv hypothesis
-  SVSampleInfo                sample1;          // sample specif evidence info
-  SVEvidenceWriterSampleData  svSupportFrags1;  // set of supporting fragments for an evidence bam
-  CallOptionsSharedDeriv      optionsSharedDeriv(optionsShared);
-
-  // Bases on the query sequence and all the breakpoint sequences, following information we will get,
-  // AltBP1 Information:
-  //         leftSize=10 homSize=1 rightSize=24 leftMismatches=1 homMismatches=1 rightMismatches=1
-  //         alignScore=32 alignLnLhood: -24.0441
-  // AltBP2 Information:
-  //         leftSize=16 homSize=1 rightSize=18 leftMismatches=3 homMismatches=0 rightMismatches=0
-  //         alignScore=32 alignLnLhood: -24.0501
-  // RefBP1 Information:
-  //         leftSize=15 homSize=0 rightSize=20 leftMismatches=3 homMismatches=0 rightMismatches=0
-  //         alignScore=32 alignLnLhood: -22.0057
-  // RefBP2 Information : Not available (As only for Bp1 it will calculate)
-  // As in RNA, we will update both alt and ref, so api does not look likeihood score.
-  // Based on the above information, we can see only AltBP2 is satisfied all the conditions
-  // as mentioned in test_incrementSplitReadEvidence, so all the information
-  // will be updated for alt allele.
-  scoreSplitReads(
-      optionsSharedDeriv,
-      17,
-      id,
-      breakend,
-      alignmentInfo,
-      reference,
-      true,
-      15,
-      10,
-      0,
-      0,
-      true,
-      evidence1,
-      bamStream.operator*(),
-      sample1,
-      svSupportFrags1);
-  // Alt allele should be updated
-  BOOST_REQUIRE_EQUAL(sample1.alt.splitReadCount, 1);
-  BOOST_REQUIRE_EQUAL(sample1.alt.splitReadMapQ, readsToAdd[0].map_qual() * readsToAdd[0].map_qual());
-  BOOST_REQUIRE_EQUAL(sample1.ref.splitReadCount, 0);
-
-  SVEvidence::evidenceTrack_t evidence2;
-  SVSampleInfo                sample2;
-  SVEvidenceWriterSampleData  svSupportFrags2;
-  reference.seq()         = refSeqBp2;
-  breakend.interval.range = known_pos_range2(24, 25);
-
-  // Bases on the query sequence and all the breakpoint sequences, following information we will get,
-  // AltBP1 Information:
-  //         leftSize=10 homSize=1 rightSize=24 leftMismatches=1 homMismatches=1 rightMismatches=1
-  //         alignScore=32 alignLnLhood: -24.0441
-  // AltBP2 Information:
-  //         leftSize=16 homSize=1 rightSize=18 leftMismatches=3 homMismatches=0 rightMismatches=0
-  //         alignScore=32 alignLnLhood: -24.0501
-  // RefBP1 Information: Not Available (As only for Bp2 it will calculate)
-  // RefBP2 Information:
-  //        leftSize=16 homSize=0 rightSize=19 leftMismatches=0 homMismatches=0 rightMismatches=0
-  //        alignScore=35 alignLnLhood: -0.0700233
-  // As in RNA, we will update both alt and ref, so api does not look likelihood score.
-  // Based on the above information, we can see AltBP2 and RefBP2 are satisfied all the conditions
-  // as mentioned in test_incrementSplitReadEvidence, so all the information will
-  // be updated for both alt and ref allele.
-  scoreSplitReads(
-      optionsSharedDeriv,
-      17,
-      id,
-      breakend,
-      alignmentInfo,
-      reference,
-      false,
-      15,
-      10,
-      0,
-      0,
-      true,
-      evidence2,
-      bamStream.operator*(),
-      sample2,
-      svSupportFrags2);
-  // Alt and Ref both should be updated
-  BOOST_REQUIRE_EQUAL(sample2.ref.splitReadCount, 1);
-  BOOST_REQUIRE_EQUAL(sample2.ref.splitReadMapQ, readsToAdd[0].map_qual() * readsToAdd[0].map_qual());
-  BOOST_REQUIRE_EQUAL(sample2.alt.splitReadCount, 1);
-  BOOST_REQUIRE_EQUAL(sample2.alt.splitReadMapQ, readsToAdd[0].map_qual() * readsToAdd[0].map_qual());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

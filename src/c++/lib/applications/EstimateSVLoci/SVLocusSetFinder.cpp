@@ -40,13 +40,12 @@ SVLocusSetFinder::SVLocusSetFinder(
     const GenomeInterval&                           scanRegion,
     const std::shared_ptr<reference_contig_segment> refSeqPtr,
     std::shared_ptr<SVLocusSet>                     svLociPtr)
-  : _isAlignmentTumor(opt.alignFileOpt.isAlignmentTumor),
-    _scanRegion(scanRegion),
+  : _scanRegion(scanRegion),
     _refSeqPtr(refSeqPtr),
     _svLociPtr(svLociPtr),
     _positionReadDepthEstimatePtr(std::make_shared<depth_buffer_compressible>(depthBufferCompression)),
     _regionManager(_scanRegion, _svLociPtr, _positionReadDepthEstimatePtr),
-    _readScanner(opt.scanOpt, opt.statsFilename, opt.alignFileOpt.alignmentFilenames, opt.isRNA),
+    _readScanner(opt.scanOpt, opt.statsFilename, opt.alignFileOpt.alignmentFilenames),
     _isMaxDepthFilter(false),
     _maxDepth(0)
 {
@@ -87,8 +86,7 @@ void SVLocusSetFinder::update(
   // accepted, because these contribute signal for assembly (indel) regions.
   if (isReadUnmappedOrFilteredCore(bamRead)) return;
 
-  const bool isTumor(_isAlignmentTumor[defaultReadGroupIndex]);
-  if (!isTumor) addToDepthBuffer(bamRead);
+  addToDepthBuffer(bamRead);
 
   // Filter out reads from high-depth chromosome regions
   if (_isMaxDepthFilter) {

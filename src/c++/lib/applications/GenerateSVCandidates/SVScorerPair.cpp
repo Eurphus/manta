@@ -121,7 +121,6 @@ void SVScorer::getSVAltPairSupport(
       _header,
       _scanOpt,
       _refineOpt,
-      _isAlignmentTumor,
       _readScanner,
       pairOpt,
       assemblyData,
@@ -132,7 +131,6 @@ void SVScorer::getSVAltPairSupport(
       _header,
       _scanOpt,
       _refineOpt,
-      _isAlignmentTumor,
       _readScanner,
       pairOpt,
       assemblyData,
@@ -151,9 +149,9 @@ void SVScorer::getSVRefPairSupport(
     std::vector<pairProcPtr>& pairProcList)
 {
   pairProcPtr bp1Ptr(
-      new SVScorePairRefProcessor(_isAlignmentTumor, _readScanner, pairOpt, sv, true, evidence));
+      new SVScorePairRefProcessor(_readScanner, pairOpt, sv, true, evidence));
   pairProcPtr bp2Ptr(
-      new SVScorePairRefProcessor(_isAlignmentTumor, _readScanner, pairOpt, sv, false, evidence));
+      new SVScorePairRefProcessor(_readScanner, pairOpt, sv, false, evidence));
 
   pairProcList.push_back(bp1Ptr);
   pairProcList.push_back(bp2Ptr);
@@ -389,9 +387,6 @@ static void getFragProb(
   log_os << logtag << "cdf: " << fragProb << " final: " << std::min(fragProb, (1 - fragProb)) << "\n";
 #endif
   fragProb = std::min(fragProb, (1 - fragProb));
-  if (pairOpt.RNA) {
-    fragProb = std::max(fragProb, pairOpt.minFragProb);
-  }
   /// TODO: any cases where fragProb is 0 or extremely small should be some
   /// sort of mulit-SV error artifact (like a large CIGAR indel in one of the
   /// reads of the pair) try to improve this case -- ideally we can account
@@ -526,7 +521,7 @@ void SVScorer::getSVPairSupport(
     SVEvidence&                    evidence,
     SVEvidenceWriterData&          svSupports)
 {
-  const PairOptions pairOpt(_isRNA);
+  const PairOptions pairOpt;
 
 #ifdef DEBUG_PAIR
   static const std::string logtag("getSVPairSupport: ");

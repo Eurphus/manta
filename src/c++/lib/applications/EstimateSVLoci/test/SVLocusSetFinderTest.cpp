@@ -40,7 +40,6 @@ static std::unique_ptr<SVLocusSetFinder> buildSVLocusSetFinder()
 
   ESLOptions opts;
   opts.alignFileOpt.alignmentFilenames = {alignFile.getFilename()};
-  opts.alignFileOpt.isAlignmentTumor   = {false};
   opts.statsFilename                   = statsFile.getFilename();
 
   return boost::make_unique<SVLocusSetFinder>(

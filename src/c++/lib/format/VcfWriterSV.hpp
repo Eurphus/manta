@@ -76,8 +76,7 @@ protected:
       const SVId&                    svId,
       const SVScoreInfo*             baseScoringInfoPtr,
       const boost::any               specializedScoringInfo,
-      const EventInfo&               event,
-      const bool                     isForceIntraChromBnd = false) const;
+      const EventInfo&               event) const;
 
   /// add info tags which can be customized by sub-class
   virtual void modifyInfo(

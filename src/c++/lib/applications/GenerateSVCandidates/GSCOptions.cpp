@@ -79,13 +79,7 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   ("candidate-output-file", po::value(&opt.candidateOutputFilename),
    "Write SV candidates to file (required)")
   ("diploid-output-file", po::value(&opt.diploidOutputFilename),
-   "Write germline diploid SVs to file (at least one non-tumor alignment file must be specified)")
-  ("somatic-output-file", po::value(&opt.somaticOutputFilename),
-   "Write somatic SVs to file (at least one tumor and non-tumor alignment file must be specified)")
-  ("tumor-output-file", po::value(&opt.tumorOutputFilename),
-   "Write tumor SVs to file (at least one tumor alignment file must be specified)")
-  ("rna-output-file", po::value(&opt.rnaOutputFilename),
-   "Write RNA fusions to file (at least one BAM file and --rna must be specified)")
+   "Write germline diploid SVs to file")
   ("verbose", po::value(&opt.isVerbose)->zero_tokens(),
    "Turn on low-detail INFO logging.")
   ("skip-assembly", po::value(&opt.isSkipAssembly)->zero_tokens(),
@@ -94,10 +88,6 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
    "Turn off all scoring models and output candidates only.")
   ("enable-remote-read-retrieval", po::value(&opt.enableRemoteReadRetrieval)->zero_tokens(),
    "Turn on retrieval of poorly mapped remote reads for assembly (improves assembly success for insertions, but may cause runtime issues in noisy data).")
-  ("rna", po::value(&opt.isRNA)->zero_tokens(),
-   "For RNA input. Skip small deletions and modify diploid scoring.")
-  ("unstranded", po::value(&opt.isUnstrandedRNA)->zero_tokens(),
-   "For RNA input. Is data stranded?.")
   ("min-candidate-spanning-count", po::value(&opt.minCandidateSpanningCount)->default_value(opt.minCandidateSpanningCount),
    "minimum number of supporting spanning observations required to become an SV candidate")
   ("min-scored-sv-size", po::value(&opt.minScoredVariantSize)->default_value(opt.minScoredVariantSize),
@@ -121,8 +111,6 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   po::options_description edgeDesc(getOptionsDescription(opt.edgeOpt));
   po::options_description scanDesc(getOptionsDescription(opt.scanOpt));
   po::options_description diploidCallDesc(getOptionsDescription(opt.diploidOpt));
-  po::options_description somaticCallDesc(getOptionsDescription(opt.somaticOpt));
-  po::options_description tumorCallDesc(getOptionsDescription(opt.tumorOpt));
 
   po::options_description help("help");
   help.add_options()("help,h", "print this message");
@@ -133,8 +121,7 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
       .add(req)
       .add(edgeDesc)
       .add(diploidCallDesc)
-      .add(somaticCallDesc)
-      .add(tumorCallDesc)
+
       .add(help);
 
   bool              po_parse_fail(false);
@@ -179,7 +166,6 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   if (opt.isDisableContigRangeRefinement) {
     opt.refineOpt.smallSVAssembleOpt.isRefineConservativeRange     = false;
     opt.refineOpt.spanningAssembleOpt.isRefineConservativeRange    = false;
-    opt.refineOpt.RNAspanningAssembleOpt.isRefineConservativeRange = false;
   }
   if (opt.diploidOpt.isDisableTandemDupModel) {
     opt.diploidOpt.isTandemDupModel = false;
@@ -197,47 +183,5 @@ void parseGSCOptions(const illumina::Program& prog, int argc, char* argv[], GSCO
   }
   if (opt.candidateOutputFilename.empty()) {
     usage(log_os, prog, visible, "Must specify candidate output file");
-  }
-
-  {
-    unsigned normalCount(0);
-    unsigned tumorCount(0);
-    for (const bool value : opt.alignFileOpt.isAlignmentTumor) {
-      if (value)
-        tumorCount++;
-      else
-        normalCount++;
-    }
-
-    /*if (opt.diploidOutputFilename.empty())
-    {
-            usage(log_os,prog,visible,"Must specify diploid output file");
-    }*/
-
-    if (!opt.diploidOutputFilename.empty()) {
-      if (normalCount == 0) {
-        usage(log_os, prog, visible, "Must specify at least one non-tumor alignment file for diploid output");
-      }
-    }
-
-    if (!opt.somaticOutputFilename.empty()) {
-      if ((normalCount == 0) || (tumorCount == 0)) {
-        usage(
-            log_os,
-            prog,
-            visible,
-            "Must specify at least one tumor and non-tumor alignment file for somatic output");
-      }
-    }
-
-    if (!opt.tumorOutputFilename.empty()) {
-      if (tumorCount == 0) {
-        usage(log_os, prog, visible, "Must specify at least one tumor alignment file for tumor output");
-      }
-    }
-
-    if ((!opt.rnaOutputFilename.empty()) != opt.isRNA) {
-      usage(log_os, prog, visible, "For RNA, specify RNA output file and --rna");
-    }
   }
 }

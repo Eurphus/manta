@@ -74,8 +74,6 @@ void parseESLOptions(const illumina::Program& prog, int argc, char* argv[], ESLO
    "average depth estimate for each chromosome")
   ("region", po::value<regions_t>(),
    "samtools formatted region, eg. 'chr1:20-30'. May be supplied more than once but regions must not overlap. At least one entry required.")
-  ("rna", po::value(&opt.isRNA)->zero_tokens(),
-   "For RNA input. Changes small fragment handling.")
   ;
   // clang-format on
 

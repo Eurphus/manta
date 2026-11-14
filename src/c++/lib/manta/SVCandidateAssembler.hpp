@@ -52,7 +52,6 @@ struct SVCandidateAssembler {
       const std::string&          chromDepthFilename,
       const bam_header_info&      bamHeader,
       const AllSampleReadCounts&  counts,
-      const bool                  isRNA,
       TimeTracker&                remoteReadRetrievalTime);
 
   /// Given a 'complex' SV candidate with 1 breakend region, assemble reads
@@ -107,7 +106,6 @@ private:
 
   const ReadScannerOptions _scanOpt;
   const AssemblerOptions   _assembleOpt;
-  const std::vector<bool>  _isAlignmentTumor;
 
   /// This depth filters tracks the maximum depth for procssing and assembling a locus
   const ChromDepthFilterUtil _dFilter;

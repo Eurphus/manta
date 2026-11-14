@@ -235,9 +235,9 @@ std::ostream& operator<<(std::ostream& os, const SVFragmentEvidence& sve);
 
 /// Track all support data for an SV hypothesis
 ///
-/// Note how this object is different than SVScoreInfoSomatic -- it is highly detailed and meant to be
+/// Note how this object is different than SVScoreInfoDiploid -- it is highly detailed and meant to be
 /// processed to create summary statistics and scores later. Those scores and summary statistics should go
-/// into objects like SomaticSVSCoreInfo to be written out in whichever output format is selected.
+/// into objects like SVScoreInfoDiploid to be written out in whichever output format is selected.
 ///
 struct SVEvidence {
   typedef std::map<std::string, SVFragmentEvidence> evidenceTrack_t;

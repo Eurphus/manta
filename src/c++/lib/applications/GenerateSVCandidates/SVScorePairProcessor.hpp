@@ -44,14 +44,12 @@ struct SVScorePairInitParams {
   // total impact of the alt allele on template size:
   pos_t    altShift;
   unsigned minMapQ;
-  unsigned minTier2MapQ;  // a second, lower mapq threshold used to disprove a somatic allele during
-                          // tumor/normal calling
+  unsigned minTier2MapQ;  // a second, lower mapq threshold for permissive ('tier2') evidence
 };
 
 struct SVScorePairBamParams {
   bool                    isSet         = false;
   unsigned                bamIndex      = 0;
-  bool                    isTumor       = false;
   pos_t                   minFrag       = 0;
   pos_t                   maxFrag       = 0;
   const SizeDistribution* fragDistroPtr = nullptr;
@@ -60,14 +58,12 @@ struct SVScorePairBamParams {
 
 struct SVScorePairProcessor : public BamRegionProcessor {
   SVScorePairProcessor(
-      const std::vector<bool>& initIsAlignmentTumor,
       const SVLocusScanner&    initReadScanner,
       const PairOptions&       initPairOpt,
       const SVCandidate&       initSv,
       const bool               initIsBp1,
       SVEvidence&              initEvidence)
-    : isAlignmentTumor(initIsAlignmentTumor),
-      readScanner(initReadScanner),
+    : readScanner(initReadScanner),
       pairOpt(initPairOpt),
       sv(initSv),
       isBp1(initIsBp1),
@@ -120,9 +116,6 @@ protected:
       fragProb = fragDistro.cdf(size);
       fragProb = std::min(fragProb, (1 - fragProb));
     }
-    if (pairOpt.RNA) {
-      fragProb = std::max(fragProb, pairOpt.minFragProb);
-    }
 #ifdef DEBUG_MEGAPAIR
     log_os << __FUNCTION__ << ": fraglen,prob " << size << " " << fragProb << "\n";
 #endif
@@ -130,7 +123,6 @@ protected:
     bp.fragLengthProb    = fragProb;
   }
 
-  const std::vector<bool> isAlignmentTumor;
   const SVLocusScanner&   readScanner;
   const PairOptions&      pairOpt;
   const SVCandidate&      sv;

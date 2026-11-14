@@ -84,7 +84,7 @@ std::unique_ptr<SVLocusScanner> buildSVLocusScanner(bam_header_info bamHeaderInf
   TestAlignHeaderFileMaker       alignFile1(bamHeaderInfo);
   TestAlignHeaderFileMaker       alignFile2(bamHeaderInfo);
   const std::vector<std::string> alignFilenameVector = {alignFile1.getFilename(), alignFile2.getFilename()};
-  return boost::make_unique<SVLocusScanner>(constRefOpts, tmpFileName, alignFilenameVector, false);
+  return boost::make_unique<SVLocusScanner>(constRefOpts, tmpFileName, alignFilenameVector);
 }
 
 BOOST_AUTO_TEST_SUITE(SVScorerPair_test_suite)
@@ -252,9 +252,7 @@ BOOST_AUTO_TEST_CASE(test_getTerminal)
 // 1. If a fragment supports SV, frag probability is calculated as mentioned above
 // 2. Fragment probability should be greater than 0.0001f.
 // 3. Distance from breakpoint center position to read position should be greater than or equal to 50
-// 4. For RNA FragProb = max(FragProb, 0.0001f) that means if FragProb is less than 0.0001f, then for RNA
-//    always 0.0001f will be taken as fragment probability.
-// 5. If read pair is inter chromosomal but breakpoint pair is not inter chromosomal, it throws an exception.
+// 4. If read pair is inter chromosomal but breakpoint pair is not inter chromosomal, it throws an exception.
 // 6. If Read1 chromosome id and bp1 chromosome id is not same, it throws an exception
 // 7. If Read2 chromosome id and bp2 chromosome id is not same, it throws an exception
 // 8. If Read1 is in reverse strand and sv.bp1.state == SVBreakendState::RIGHT_OPEN, it throws an exception
@@ -262,7 +260,7 @@ BOOST_AUTO_TEST_CASE(test_getTerminal)
 BOOST_AUTO_TEST_CASE(test_getFragProb)
 {
   static const float eps(0.00000001);
-  PairOptions        options1(false);  // false means it is a DNA sample
+  PairOptions        options1;
   bool               isFragSupportSV;
   float              fragProb;
   SVCandidate        candidate;
@@ -304,13 +302,6 @@ BOOST_AUTO_TEST_CASE(test_getFragProb)
   // Distance between read-1 and BP1 center is 254 - 200 + 1 = 56 which is greater than 50
   // Distance between read-2 and BP2 center is 325 - 276 + 1 = 50 which is equal to 50.
   getFragProb(options1, candidate, fragment, fragDistribution, true, isFragSupportSV, fragProb);
-  BOOST_REQUIRE(isFragSupportSV);
-  BOOST_REQUIRE_CLOSE(fragProb, expected, eps);
-
-  // This is similar test case as above but here fragment probality is performed
-  // on RNA sample. So fragment-size probability is max(~0.25, 0.0001) = 0.25.
-  PairOptions options2(true);
-  getFragProb(options2, candidate, fragment, fragDistribution, true, isFragSupportSV, fragProb);
   BOOST_REQUIRE(isFragSupportSV);
   BOOST_REQUIRE_CLOSE(fragProb, expected, eps);
 
@@ -404,11 +395,9 @@ BOOST_AUTO_TEST_CASE(test_getFragProb)
 // Here the test cases are constructed with bams.
 BOOST_AUTO_TEST_CASE(test_processBamProcList)
 {
-  // whether alignment file tumor or normal
-  const std::vector<bool>         bamFileInfo = {false, false};
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildSVLocusScanner(bamHeader));
-  const PairOptions               options1(false);
+  const PairOptions               options1;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
@@ -424,7 +413,7 @@ BOOST_AUTO_TEST_CASE(test_processBamProcList)
   // search range end = 159 + (125-50) + 1 = 235
   // Test cases for search range are mentioned in test_nextBAMIndex in SVScorePairProcessorTest.cpp
   std::shared_ptr<SVScorePairRefProcessor> processor(
-      new SVScorePairRefProcessor(bamFileInfo, scanner.operator*(), options1, candidate, true, evidence));
+      new SVScorePairRefProcessor(scanner.operator*(), options1, candidate, true, evidence));
   std::vector<SVScorer::pairProcPtr> pairProcList = {processor};
   std::vector<SVScorer::streamPtr>   bamStreams   = {bamStream1, bamStream2};
   SVId                               id;
@@ -489,10 +478,9 @@ BOOST_AUTO_TEST_CASE(test_processExistingAltPairInfo)
   std::unique_ptr<SVLocusScanner> scanner(buildSVLocusScanner(bamHeader));
   GSCOptions                      options;
   options.alignFileOpt.alignmentFilenames = {bamFileName1, bamFileName2};
-  options.alignFileOpt.isAlignmentTumor   = {false, false};
   SVScorer     scorer(options, scanner.operator*(), bamHeader);
   TestSVScorer fSVScorer;
-  PairOptions  pairOptions(false);  // false means it is a DNA sample
+  PairOptions  pairOptions;
 
   // Candidate SV
   SVCandidate candidate;
@@ -646,7 +634,6 @@ BOOST_AUTO_TEST_CASE(test_getSVPairSupport)
 
   GSCOptions options;
   options.alignFileOpt.alignmentFilenames = {bamFileName1};
-  options.alignFileOpt.isAlignmentTumor   = {false};
   SVScorer     scorer(options, scanner.operator*(), bamHeader);
   TestSVScorer fSVScorer;
   SVCandidate  candidate1;

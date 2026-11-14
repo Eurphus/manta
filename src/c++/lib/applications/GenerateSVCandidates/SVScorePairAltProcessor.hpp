@@ -49,15 +49,13 @@ struct SVScorePairAltProcessor : public SVScorePairProcessor {
       const bam_header_info&         header,
       const ReadScannerOptions&      scanOpt,
       const SVRefinerOptions&        refineOpt,
-      const std::vector<bool>&       initIsAlignmentTumor,
       const SVLocusScanner&          initReadScanner,
       const PairOptions&             initPairOpt,
       const SVCandidateAssemblyData& initAssemblyData,
       const SVCandidate&             initSv,
       const bool                     initIsBp1,
       SVEvidence&                    initEvidence)
-    : SVScorePairProcessor(
-          initIsAlignmentTumor, initReadScanner, initPairOpt, initSv, initIsBp1, initEvidence),
+    : SVScorePairProcessor(initReadScanner, initPairOpt, initSv, initIsBp1, initEvidence),
       _header(header),
       _assemblyData(initAssemblyData),
       _shadowAligner(refineOpt.spanningAlignScores),

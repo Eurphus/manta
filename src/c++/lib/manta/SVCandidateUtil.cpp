@@ -113,15 +113,13 @@ static index_t classifyIndel(const SVCandidate& sv)
 
 }  // namespace EXTENDED_SV_TYPE
 
-EXTENDED_SV_TYPE::index_t getExtendedSVType(const SVCandidate& sv, const bool isForceIntraChromBnd)
+EXTENDED_SV_TYPE::index_t getExtendedSVType(const SVCandidate& sv)
 {
   using namespace EXTENDED_SV_TYPE;
 
   const SV_TYPE::index_t svType(getSVType(sv));
 
   if (svType == SV_TYPE::INTERTRANSLOC) return INTERTRANSLOC;
-
-  if (isForceIntraChromBnd) return INTRATRANSLOC;
 
   switch (svType) {
   case SV_TYPE::INVERSION:

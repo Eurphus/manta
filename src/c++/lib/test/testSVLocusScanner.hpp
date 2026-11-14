@@ -30,4 +30,6 @@
 
 /// \brief Builds an SVLocusScanner for unit testing
 std::unique_ptr<SVLocusScanner> buildTestSVLocusScanner(
-    const bam_header_info& bamHeaderInfo, bool isRNA = false, int minCandidateVariantSizeInput = 8);
+    const bam_header_info& bamHeaderInfo,
+    bool                   useOverlapPairEvidence       = false,
+    int                    minCandidateVariantSizeInput = 8);

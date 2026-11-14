@@ -30,8 +30,6 @@ std::ostream& operator<<(std::ostream& os, const SVCandidate& svc)
   static const char indent('\t');
   os << "SVCandidate:\n"
      << indent << "isImprecise?: " << svc.isImprecise() << "\n"
-     << indent << "forwardTranscriptStrandReadCount: " << svc.forwardTranscriptStrandReadCount
-     << " ; reverseTranscriptStrandReadCount: " << svc.reverseTranscriptStrandReadCount << "\n"
      << indent << "index candidate:assemblyAlign:assemblySegment: " << svc.candidateIndex << ":"
      << svc.assemblyAlignIndex << ":" << svc.assemblySegmentIndex << "\n";
   if (!svc.isImprecise()) {

@@ -41,7 +41,6 @@
 #include "manta/SVLocusScanner.hpp"
 #include "manta/SVModelScoreInfo.hpp"
 #include "manta/SVMultiJunctionCandidate.hpp"
-#include "manta/SVScoreInfoSomatic.hpp"
 
 struct CallOptionsSharedDeriv {
   explicit CallOptionsSharedDeriv(const CallOptionsShared& opt) : refQ(opt.snpPrior), altQ(0) {}
@@ -70,64 +69,13 @@ struct CallOptionsDiploidDeriv : private boost::noncopyable {
   std::array<float, DIPLOID_GT::SIZE> logPrior;
 };
 
-struct CallOptionsSomaticDeriv : private boost::noncopyable {
-  explicit CallOptionsSomaticDeriv(const CallOptionsSomatic& opt)
-  {
-    using namespace SOMATIC_GT;
-
-    assert(opt.germlineSVPrior < 0.5);
-
-    prior[SOM]   = opt.somaticSVPrior;
-    prior[NOISE] = opt.largeNoiseSVPrior;
-
-    prior[HET] = opt.germlineSVPrior;
-    prior[HOM] = opt.germlineSVPrior / 2;
-
-    // this assumes all states independent, and somatic and noise only occur on germline ref GT background:
-    const float nonref(prior[SOM] + prior[NOISE] + prior[HET] + prior[HOM]);
-    assert(nonref >= 0 && nonref <= 1);
-    prior[REF] = 1 - nonref;
-
-    for (unsigned i(0); i < SIZE; ++i) {
-      _logPrior[i] = std::log(prior[i]);
-    }
-
-    smallNoisePrior    = opt.smallNoiseSVPrior;
-    largeNoisePrior    = opt.largeNoiseSVPrior;
-    logSmallNoisePrior = std::log(opt.smallNoiseSVPrior);
-    logLargeNoisePrior = std::log(opt.largeNoiseSVPrior);
-  }
-
-  float logPrior(const unsigned gt, const float largeNoiseWeight) const
-  {
-    assert(largeNoiseWeight >= 0. && largeNoiseWeight <= 1.);
-
-    if (gt != SOMATIC_GT::NOISE) return _logPrior[gt];
-
-    if (largeNoiseWeight <= 0.) return logSmallNoisePrior;
-    if (largeNoiseWeight >= 1.) return logLargeNoisePrior;
-
-    return std::log((1 - largeNoiseWeight) * smallNoisePrior + largeNoiseWeight * largeNoisePrior);
-  }
-
-private:
-  std::array<float, SOMATIC_GT::SIZE> prior;
-  std::array<float, SOMATIC_GT::SIZE> _logPrior;
-
-  float smallNoisePrior;
-  float largeNoisePrior;
-  float logSmallNoisePrior;
-  float logLargeNoisePrior;
-};
-
 /// Implements SV scoring/genotyping process
 ///
 struct SVScorer {
   SVScorer(const GSCOptions& opt, const SVLocusScanner& readScanner, const bam_header_info& header);
 
   /// Gather supporting read evidence and generate:
-  /// 1. diploid quality score and genotype for SV candidate
-  /// 2. somatic quality score
+  /// diploid quality score and genotype for SV candidate
   ///
   /// \param mjModelScoreInfo standard (junction-independent) scoring information for each junction
   ///
@@ -139,8 +87,6 @@ struct SVScorer {
       const SVMultiJunctionCandidate&             mjSV,
       const std::vector<SVId>&                    mjSVId,
       const std::vector<bool>&                    isJunctionFiltered,
-      const bool                                  isSomatic,
-      const bool                                  isTumorOnly,
       std::vector<SVModelScoreInfo>&              mjModelScoreInfo,
       SVModelScoreInfo&                           mjJointModelScoreInfo,
       bool&                                       isMJEvent,
@@ -226,9 +172,8 @@ private:
       SVEvidence&                    evidence,
       SVEvidenceWriterData&          svSupports);
 
-  /// Determine maximum depth and MQ0 frac in region around breakend of normal sample
+  /// Determine maximum depth and MQ0 frac in region around breakend, over all samples
   void getBreakendMaxMappedDepthAndMQ0(
-      const bool        isTumorOnly,
       const bool        isMaxDepth,
       const double      cutoffDepth,
       const SVBreakend& bp,
@@ -249,40 +194,30 @@ private:
   /// \param junctionData one element describing each junction of an event, for normal (single-junction)
   /// candidates, the vector size should be one
   void computeAllScoreModels(
-      const bool                           isSomatic,
-      const bool                           isTumorOnly,
       const std::vector<JunctionCallInfo>& junctionData,
       SVModelScoreInfo&                    modelScoreInfo);
 
   /// Accumulate (model-agnostic) evidence for the SV alt/ref alleles
   ///
   /// This step gathers information (such as counts and allele likelihoods) to be used downstream by more
-  /// specific (germline, somatic, etc..) scoring models.
+  /// specific scoring models.
   ///
   void getSVSupportingEvidence(
       const SVCandidateSetData&      svData,
       const SVCandidateAssemblyData& assemblyData,
-      const bool                     isTumorOnly,
       const SVCandidate&             sv,
       const SVId&                    svId,
       SVScoreInfo&                   ssInfo,
       SVEvidence&                    evidence,
       SVEvidenceWriterData&          svSupports);
 
-  const std::vector<bool>       _isAlignmentTumor;
-  const bool                    _isRNA;
   const CallOptionsShared       _callOpt;
   const CallOptionsSharedDeriv  _callDopt;
   const CallOptionsDiploid      _diploidOpt;
   const CallOptionsDiploidDeriv _diploidDopt;
   const ReadScannerOptions      _scanOpt;
   const SVRefinerOptions        _refineOpt;
-  const CallOptionsSomatic      _somaticOpt;
-  const CallOptionsSomaticDeriv _somaticDopt;
-  const CallOptionsTumor        _tumorOpt;
   const ChromDepthFilterUtil    _dFilterDiploid;
-  const ChromDepthFilterUtil    _dFilterSomatic;
-  const ChromDepthFilterUtil    _dFilterTumor;
   const SVLocusScanner&         _readScanner;
 
   const bam_header_info& _header;
@@ -290,5 +225,4 @@ private:
   std::vector<streamPtr> _bamStreams;
 
   unsigned _sampleCount;
-  unsigned _diploidSampleCount;
 };

@@ -27,9 +27,6 @@
 #include "common/OutStream.hpp"
 #include "format/VcfWriterCandidateSV.hpp"
 #include "format/VcfWriterDiploidSV.hpp"
-#include "format/VcfWriterRnaSV.hpp"
-#include "format/VcfWriterSomaticSV.hpp"
-#include "format/VcfWriterTumorSV.hpp"
 #include "manta/JunctionIdGenerator.hpp"
 #include "manta/SVCandidateAssemblyData.hpp"
 #include "manta/SVCandidateSetData.hpp"
@@ -60,7 +57,4 @@ private:
 
   VcfWriterCandidateSV                candWriter;
   std::unique_ptr<VcfWriterDiploidSV> diploidWriter;
-  std::unique_ptr<VcfWriterSomaticSV> somWriter;
-  std::unique_ptr<VcfWriterTumorSV>   tumorWriter;
-  std::unique_ptr<VcfWriterRnaSV>     rnaWriter;
 };

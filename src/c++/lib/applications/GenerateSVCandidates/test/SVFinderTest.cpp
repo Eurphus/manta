@@ -118,7 +118,6 @@ BOOST_AUTO_TEST_CASE(test_AddSVNodeRead)
       true,
       refSeq,
       true,
-      false,
       svDatagroup,
       eCounts);
   BOOST_REQUIRE_EQUAL(svDatagroup.size(), 1u);
@@ -145,7 +144,6 @@ BOOST_AUTO_TEST_CASE(test_AddSVNodeRead)
       true,
       refSeq,
       true,
-      false,
       svDatagroup,
       eCounts);
   BOOST_REQUIRE_EQUAL(svDatagroup.size(), 1u);
@@ -163,7 +161,6 @@ BOOST_AUTO_TEST_CASE(test_AddSVNodeRead)
       true,
       refSeq,
       true,
-      false,
       svDatagroup,
       eCounts);
   BOOST_REQUIRE_EQUAL(svDatagroup.size(), 2u);
@@ -799,7 +796,6 @@ BOOST_AUTO_TEST_CASE(test_SVCandidates)
   options.edgeStatsFilename               = fileNameMaker1.getFilename();
   options.referenceFilename               = referenceFilename;
   options.alignFileOpt.alignmentFilenames = {bamFileName};
-  options.alignFileOpt.isAlignmentTumor   = {false};
   options.graphFilename                   = testFilenameMaker.getFilename();
   ;
   options.chromDepthFilename = depthFileName;

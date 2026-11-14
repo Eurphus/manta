@@ -125,7 +125,7 @@ inline const char* label(const index_t idx)
 }
 }  // namespace EXTENDED_SV_TYPE
 
-EXTENDED_SV_TYPE::index_t getExtendedSVType(const SVCandidate& sv, const bool isForceIntraChromBnd = false);
+EXTENDED_SV_TYPE::index_t getExtendedSVType(const SVCandidate& sv);
 
 /// a 'spanning' sv means that this is a 'normal' breakend, where we have a
 /// hypothesis for the region and orientation of each end of the breakend

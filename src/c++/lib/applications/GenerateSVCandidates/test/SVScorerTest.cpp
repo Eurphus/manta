@@ -34,35 +34,24 @@
 struct TestSVScorer {
   void getBreakendMaxMappedDepthAndMQ0(
       SVScorer&         scorer,
-      const bool        isTumorOnly,
       const bool        isMaxDepth,
       const double      cutoffDepth,
       const SVBreakend& breakend,
       unsigned&         maxDepth,
       float&            MQ0Frac)
   {
-    scorer.getBreakendMaxMappedDepthAndMQ0(isTumorOnly, isMaxDepth, cutoffDepth, breakend, maxDepth, MQ0Frac);
+    scorer.getBreakendMaxMappedDepthAndMQ0(isMaxDepth, cutoffDepth, breakend, maxDepth, MQ0Frac);
   }
 
   void computeAllScoreModels(
       SVScorer&                            scorer,
-      const bool                           isSomatic,
-      const bool                           isTumorOnly,
       const std::vector<JunctionCallInfo>& junctionData,
       SVModelScoreInfo&                    modelScoreInfo)
   {
-    if (isSomatic) {
-      scorer._sampleCount        = 2;
-      scorer._diploidSampleCount = 1;
-    }
-    scorer.computeAllScoreModels(isSomatic, isTumorOnly, junctionData, modelScoreInfo);
+    scorer.computeAllScoreModels(junctionData, modelScoreInfo);
   }
 
-  void setSampleCount(SVScorer& scorer, unsigned sampleCount, unsigned diploidSampleCount)
-  {
-    scorer._sampleCount        = sampleCount;
-    scorer._diploidSampleCount = diploidSampleCount;
-  }
+  void setSampleCount(SVScorer& scorer, unsigned sampleCount) { scorer._sampleCount = sampleCount; }
 };
 
 BOOST_AUTO_TEST_SUITE(SVScorer_test_suite)
@@ -1258,32 +1247,6 @@ BOOST_AUTO_TEST_CASE(test_getSpanningPairWeight)
   BOOST_REQUIRE_CLOSE(getSpanningPairWeight(candidate, 600), 0.5f, 0.0001);
 }
 
-// Spanning weight is calculated as,
-// spanning weight = min(1, max(0, (val-_min)*_factor)),
-// For large SV,
-//      val = center size of SV, _min = 5000, _max = 10000, & svSizeRamp applied
-// factor = 1/(_max-_min),
-// For interchrosomal SV event it will return 1.
-BOOST_AUTO_TEST_CASE(test_largeNoiseSVPriorWeight)
-{
-  static const double eps(0.00000001);
-
-  SVCandidate candidate;
-  // Interchrosomal SV. So largeNoiseSVPriorWeight = 1.
-  candidate.bp1.interval = GenomeInterval(0, 1000, 1200);
-  candidate.bp2.interval = GenomeInterval(1, 1000, 1200);
-  BOOST_REQUIRE_CLOSE(largeNoiseSVPriorWeight(candidate), 1, eps);
-
-  // _min = 5000, _max = 10000
-  // val = center size of candidate = 5925
-  // _factor = 1/5000 = 0.0002
-  // spanning weight = min(1, max(0, (val-_min)*_factor))
-  //                 = min(1, max(0, (5925-5000)*0.02) = 0.185000002
-  candidate.bp1.interval = GenomeInterval(0, 1000, 1200);
-  candidate.bp2.interval = GenomeInterval(0, 7000, 7050);
-  BOOST_REQUIRE_CLOSE(largeNoiseSVPriorWeight(candidate), 0.185000002f, eps);
-}
-
 // Test the following cases
 // 1. API returns true if either of the following three conditions satisfied:
 //       * If fragment supports ref or alt allele on any of the breakpoints
@@ -1876,464 +1839,6 @@ BOOST_AUTO_TEST_CASE(test_scoreDiploidSV)
   BOOST_REQUIRE_EQUAL(*(std::next(diploidInfo.filters.begin(), 3)), diploidOpt.failedSampleFTLabel);
 }
 
-// Test the following cases:
-// 1. when MQ0 fraction of BP1 or BP2 is greater than control filtration based on MQ0 fraction (0.4)
-// 2. when max depth of BP1 or BP2 is greater than chromosome depth
-BOOST_AUTO_TEST_CASE(test_scoreTumorSV)
-{
-  const bam_header_info bamHeader(buildTestBamHeader());
-  CallOptionsTumor      optionsTumor;
-  // Dummy depth file that means depth file is not present
-  ChromDepthFilterUtil depthFilterUtil1("", 0.2, bamHeader);
-  SVCandidate          candidate;
-  candidate.bp1.interval = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval = GenomeInterval(0, 400, 500);
-  candidate.insertSeq    = "AGCTGACTGATCAGT";
-  SVScoreInfoTumor scoreInfoTumor;
-  SVScoreInfo      scoreInfo1;
-  scoreInfo1.bp1MQ0Frac = 0.2f;
-  scoreInfo1.bp2MQ0Frac = 0.3f;
-  SVEvidence       evidence;
-  JunctionCallInfo callInfo;
-  callInfo.init(candidate, evidence, scoreInfo1, 0.2);
-  std::vector<JunctionCallInfo> callInfos;
-  callInfos.push_back(callInfo);
-  scoreTumorSV(optionsTumor, depthFilterUtil1, callInfos, scoreInfoTumor);
-  // All the cases are fine. No label will be added.
-  BOOST_REQUIRE_EQUAL(scoreInfoTumor.filters.size(), 0);
-
-  // For case-1: If fraction of mapping quality 0 reads more than 0.4 at any of the breakpoints,
-  // then add maxMQ0FracLabel label to this record.
-  // Here fraction of mapping quality 0 reads at BP2 is 0.5 which is greater than 0.4.
-  callInfos.clear();
-  scoreInfo1.bp1MQ0Frac = 0.2f;
-  scoreInfo1.bp2MQ0Frac = 0.5f;
-  callInfo.init(candidate, evidence, scoreInfo1, 0.2);
-  callInfos.push_back(callInfo);
-  scoreTumorSV(optionsTumor, depthFilterUtil1, callInfos, scoreInfoTumor);
-  BOOST_REQUIRE_EQUAL(scoreInfoTumor.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoTumor.filters.begin()), optionsTumor.maxMQ0FracLabel);
-
-  // Designed the case-1 for BP1
-  callInfos.clear();
-  scoreInfoTumor.filters.clear();
-  scoreInfo1.bp1MQ0Frac = 0.5f;
-  scoreInfo1.bp2MQ0Frac = 0.2f;
-  callInfo.init(candidate, evidence, scoreInfo1, 0.2);
-  callInfos.push_back(callInfo);
-  scoreTumorSV(optionsTumor, depthFilterUtil1, callInfos, scoreInfoTumor);
-  BOOST_REQUIRE_EQUAL(scoreInfoTumor.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoTumor.filters.begin()), optionsTumor.maxMQ0FracLabel);
-
-  // Designed the case-1 for both BP1 and BP2
-  callInfos.clear();
-  scoreInfoTumor.filters.clear();
-  scoreInfo1.bp1MQ0Frac = 0.5f;
-  scoreInfo1.bp2MQ0Frac = 0.6f;
-  callInfo.init(candidate, evidence, scoreInfo1, 0.2);
-  callInfos.push_back(callInfo);
-  scoreTumorSV(optionsTumor, depthFilterUtil1, callInfos, scoreInfoTumor);
-  BOOST_REQUIRE_EQUAL(scoreInfoTumor.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoTumor.filters.begin()), optionsTumor.maxMQ0FracLabel);
-
-  // Designed the case-2 where BP depth is more than chromosome depth
-  callInfos.clear();
-  scoreInfoTumor.filters.clear();
-  const std::shared_ptr<TestChromosomeDepthFileMaker> depthFileMaker(new TestChromosomeDepthFileMaker());
-  const std::string                                   depthFileName(depthFileMaker.operator*().getFilename());
-  buildTestChromosomeDepthFile(depthFileName);
-  ChromDepthFilterUtil depthFilterUtil2(depthFileName, 2, bamHeader);
-  SVScoreInfo          scoreInfo2;
-  scoreInfo2.bp2MaxDepth = 120;
-  callInfo.init(candidate, evidence, scoreInfo2, 0.2);
-  callInfos.push_back(callInfo);
-  // Here max depth at BP2 = 120 which is greater than chrBar depth (16)
-  scoreTumorSV(optionsTumor, depthFilterUtil2, callInfos, scoreInfoTumor);
-  BOOST_REQUIRE_EQUAL(scoreInfoTumor.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoTumor.filters.begin()), optionsTumor.maxDepthFilterLabel);
-}
-
-// Following cases need to be tested:
-// 1. When SV is imprecise. Add Imprecise label.
-// 2. When difference between two breakpoints is less than Min length for passing fusions (100000).
-//    Add a local label.
-// 3. when split read count or confident spanning pair count is 0. Add a rnaFilterLabel.
-BOOST_AUTO_TEST_CASE(test_scoreRNASV)
-{
-  SVSampleInfo   sampleInfo;
-  SVCandidate    candidate;
-  SVScoreInfoRna scoreInfoRna;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  // Designed the case-1 where candidate sv is imprecise.
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoRna.filters.begin()), SVScoreInfoRna::impreciseLabel);
-
-  // Designed the case-2 difference between two breakpoints is less than Min length for
-  // passing fusions (100000)
-  candidate.setPrecise();
-  scoreInfoRna.filters.clear();
-  // Here difference between two breakpoint is 425-150 = 275 < 100000
-  candidate.bp1.interval                    = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval                    = GenomeInterval(0, 400, 450);
-  sampleInfo.alt.splitReadCount             = 1;
-  sampleInfo.alt.confidentSpanningPairCount = 1;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoRna.filters.begin()), SVScoreInfoRna::localLabel);
-
-  // Designed the case-2 difference between two breakpoints is greater than Min length for
-  // passing fusions (100000)
-  scoreInfoRna.filters.clear();
-  // Here difference between two breakpoint is 400025-150 = 399875 > 100000
-  candidate.bp1.interval                    = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval                    = GenomeInterval(0, 400000, 400050);
-  sampleInfo.alt.splitReadCount             = 1;
-  sampleInfo.alt.confidentSpanningPairCount = 1;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 0);
-
-  // Designed the case-3 when splitReadCount = 0 and confidentSpanningPairCount = 1
-  scoreInfoRna.filters.clear();
-  candidate.bp1.interval                    = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval                    = GenomeInterval(1, 400, 450);
-  sampleInfo.alt.splitReadCount             = 0;
-  sampleInfo.alt.confidentSpanningPairCount = 1;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoRna.filters.begin()), SVScoreInfoRna::rnaFilterLabel);
-
-  // Designed the case-3 when splitReadCount = 1 and confidentSpanningPairCount = 0
-  scoreInfoRna.filters.clear();
-  candidate.bp1.interval                    = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval                    = GenomeInterval(1, 400, 450);
-  sampleInfo.alt.splitReadCount             = 1;
-  sampleInfo.alt.confidentSpanningPairCount = 0;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoRna.filters.begin()), SVScoreInfoRna::rnaFilterLabel);
-
-  // Designed the case-3 when splitReadCount = 0 and confidentSpanningPairCount = 0
-  scoreInfoRna.filters.clear();
-  candidate.bp1.interval                    = GenomeInterval(0, 100, 200);
-  candidate.bp2.interval                    = GenomeInterval(0, 400, 450);
-  sampleInfo.alt.splitReadCount             = 0;
-  sampleInfo.alt.confidentSpanningPairCount = 0;
-  scoreRNASV(sampleInfo, candidate, scoreInfoRna);
-  BOOST_REQUIRE_EQUAL(scoreInfoRna.filters.size(), 2);
-  BOOST_REQUIRE_EQUAL(*(scoreInfoRna.filters.begin()), SVScoreInfoRna::localLabel);
-  BOOST_REQUIRE_EQUAL(*(std::next(scoreInfoRna.filters.begin(), 1)), SVScoreInfoRna::rnaFilterLabel);
-}
-
-// If tier2 support
-//     spanning pair count = confidentSemiMappedSpanningPairCount * spanning pair weight
-// else
-//     spanning pair count = confidentSpanningPairCount * spanning pair weight
-// where spanning pair weight is 0.2 and isTier2/isPermissive is the 3rd arg of
-// function getSpanningPairCount().
-BOOST_AUTO_TEST_CASE(test_getSpanningPairCount)
-{
-  SVSampleAlleleInfo alleleInfo;
-  alleleInfo.confidentSpanningPairCount           = 100;
-  alleleInfo.confidentSemiMappedSpanningPairCount = 50;
-  BOOST_REQUIRE_EQUAL(getSpanningPairCount(alleleInfo, 0.2, false), 20);
-  // for tier2 support
-  BOOST_REQUIRE_EQUAL(getSpanningPairCount(alleleInfo, 0.2, true), 10);
-}
-
-// If tier2 support
-//     spanning pair count = confidentSplitReadCount + confidentSemiMappedSpanningPairCount * spanning pair
-//     weight
-// else
-//     spanning pair count = confidentSplitReadCount + confidentSpanningPairCount * spanning pair weight
-// where spanning pair weight is 0.2
-BOOST_AUTO_TEST_CASE(test_getSupportCount)
-{
-  SVSampleAlleleInfo alleleInfo;
-  alleleInfo.confidentSpanningPairCount           = 100;
-  alleleInfo.confidentSemiMappedSpanningPairCount = 50;
-  alleleInfo.confidentSplitReadCount              = 10;
-  BOOST_REQUIRE_EQUAL(getSupportCount(alleleInfo, 0.2, false), 30);
-  BOOST_REQUIRE_EQUAL(getSupportCount(alleleInfo, 0.2, true), 20);
-}
-
-// Test the fraction of allele support count to total support
-// counts (alt support + ref support)
-BOOST_AUTO_TEST_CASE(test_estimateSomaticMutationFreq)
-{
-  SVCandidate candidate;
-  SVEvidence  evidence;
-
-  // All counts are zero so fraction should be also 0.
-  std::vector<JunctionCallInfo> callInfos;
-  callInfos.resize(1);
-  SVScoreInfo  scoreInfo1;
-  SVSampleInfo sampleInfo;
-  scoreInfo1.samples.resize(1);
-  scoreInfo1.samples.push_back(sampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo1, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateSomaticMutationFreq(0, callInfos, false), 0);
-
-  // alt support count > 0 and ref support count is 0. So fraction of
-  // alt support = 1
-  sampleInfo.alt.confidentSpanningPairCount           = 100;
-  sampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  sampleInfo.alt.confidentSplitReadCount              = 10;
-  SVScoreInfo scoreInfo2;
-  scoreInfo2.samples.push_back(sampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo2, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateSomaticMutationFreq(0, callInfos, false), 1);
-
-  // alt support count = 0 and ref support count > 0. So fraction of
-  // alt support = 0
-  sampleInfo.alt.confidentSpanningPairCount           = 0;
-  sampleInfo.alt.confidentSemiMappedSpanningPairCount = 0;
-  sampleInfo.alt.confidentSplitReadCount              = 0;
-  sampleInfo.ref.confidentSpanningPairCount           = 100;
-  sampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  sampleInfo.ref.confidentSplitReadCount              = 10;
-  SVScoreInfo scoreInfo3;
-  scoreInfo3.samples.push_back(sampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo3, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateSomaticMutationFreq(0, callInfos, false), 0);
-
-  // alt support count > 0 and ref support count is >. So fraction of
-  // alt support = alt support / (alt support + ref support)
-  sampleInfo.alt.confidentSpanningPairCount           = 100;
-  sampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  sampleInfo.alt.confidentSplitReadCount              = 10;
-  sampleInfo.ref.confidentSpanningPairCount           = 100;
-  sampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  sampleInfo.ref.confidentSplitReadCount              = 10;
-  SVScoreInfo scoreInfo4;
-  scoreInfo4.samples.push_back(sampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo4, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateSomaticMutationFreq(0, callInfos, false), 0.5);
-}
-
-// This is applicable for somatic caller.
-// Test the fraction of somatic alt support count (normal + tumor) to total support
-// counts (alt support + ref support of normal and tumor)
-BOOST_AUTO_TEST_CASE(test_estimateNoiseMutationFreq)
-{
-  SVCandidate candidate;
-  SVEvidence  evidence;
-  // All counts are zero for both normal and tumor
-  std::vector<JunctionCallInfo> callInfos;
-  callInfos.resize(1);
-  SVScoreInfo  scoreInfo1;
-  SVSampleInfo normalSampleInfo;
-  SVSampleInfo tumorSampleInfo;
-  scoreInfo1.samples.resize(2);
-  scoreInfo1.samples.push_back(normalSampleInfo);
-  scoreInfo1.samples.push_back(tumorSampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo1, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateNoiseMutationFreq(0, 1, callInfos, false), 0);
-
-  // alt support count (tumor + normal) > 0 and ref support count is 0. So fraction of somatic
-  // alt support = 1
-  normalSampleInfo.alt.confidentSpanningPairCount           = 100;
-  normalSampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.alt.confidentSplitReadCount              = 10;
-  tumorSampleInfo.alt.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.alt.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.alt.confidentSplitReadCount               = 10;
-  SVScoreInfo scoreInfo2;
-  scoreInfo2.samples.push_back(normalSampleInfo);
-  scoreInfo2.samples.push_back(tumorSampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo2, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateNoiseMutationFreq(0, 1, callInfos, false), 1);
-
-  // alt support count (tumor + normal) = 0 and ref support count
-  // (tumor + normal) > 0. So fraction of somatic alt support = 0
-  normalSampleInfo.alt.confidentSpanningPairCount           = 0;
-  normalSampleInfo.alt.confidentSemiMappedSpanningPairCount = 0;
-  normalSampleInfo.alt.confidentSplitReadCount              = 0;
-  normalSampleInfo.ref.confidentSpanningPairCount           = 100;
-  normalSampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.ref.confidentSplitReadCount              = 10;
-  tumorSampleInfo.alt.confidentSpanningPairCount            = 0;
-  tumorSampleInfo.alt.confidentSemiMappedSpanningPairCount  = 0;
-  tumorSampleInfo.alt.confidentSplitReadCount               = 0;
-  tumorSampleInfo.ref.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.ref.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.ref.confidentSplitReadCount               = 10;
-  SVScoreInfo scoreInfo3;
-  scoreInfo3.samples.push_back(normalSampleInfo);
-  scoreInfo3.samples.push_back(tumorSampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo3, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateNoiseMutationFreq(0, 1, callInfos, false), 0);
-
-  // alt support count (tumor + normal) > 0 and ref support count (tumor + normal) > 0.
-  // So fraction of somatic alt support = alt support / (alt support + ref support)
-  normalSampleInfo.alt.confidentSpanningPairCount           = 100;
-  normalSampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.alt.confidentSplitReadCount              = 10;
-  normalSampleInfo.ref.confidentSpanningPairCount           = 100;
-  normalSampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.ref.confidentSplitReadCount              = 10;
-  tumorSampleInfo.alt.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.alt.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.alt.confidentSplitReadCount               = 10;
-  tumorSampleInfo.ref.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.ref.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.ref.confidentSplitReadCount               = 10;
-  SVScoreInfo scoreInfo4;
-  scoreInfo4.samples.push_back(normalSampleInfo);
-  scoreInfo4.samples.push_back(tumorSampleInfo);
-  callInfos[0].init(candidate, evidence, scoreInfo4, 0.2);
-  BOOST_REQUIRE_EQUAL(estimateNoiseMutationFreq(0, 1, callInfos, false), 0.5);
-}
-
-// The simplified form a somatic genotype state space
-// is defined consisting of non-somatic germline variant states {rr, rx, xx}, a noise
-// state n representing spurious observations at the same allele frequency in the
-// tumor and normal sample and the somatic state s.
-// So if fragment-size likelihood of ref allele is R and fragment-size likelihood of alt allele
-// is L, then score(S) of a genotype (gt = REF or HET or HOM or n or s) is
-// S = log_sum(R + altLnCompFraction(gt), L + altLnFraction(gt)), where,
-//     altLnFraction(gt) = log(Prior probability of expected alt allele)
-//     altLnCompFraction(gt) = log(1-Prior probability of expected alt allele)
-//     log_sum(x1,x2) = x1 + log(1+exp(x2-x1)) if x2>x1
-//                    = x2 + log(1+exp(x1-x2)) if x1>x2
-BOOST_AUTO_TEST_CASE(test_computeSomaticSampleLoghood)
-{
-  static const double         eps(0.00000001);
-  float                       spanningPairWeight(0.2);
-  ProbSet                     refChimeraProb(0.2);
-  ProbSet                     altChimeraProb(0.3);
-  ProbSet                     refSplitMapProb(0.1);
-  ProbSet                     altSplitMapProb(0.5);
-  SVEvidence::evidenceTrack_t evidenceTrack;
-  std::string                 fragLabel = "frag-1";
-  SVFragmentEvidence          fragmentEvidence1;
-  fragmentEvidence1.alt.bp1.isFragmentSupport    = true;
-  fragmentEvidence1.alt.bp1.fragLengthProb       = 0.4;
-  fragmentEvidence1.ref.bp1.read1.isSplitSupport = true;
-  fragmentEvidence1.ref.bp1.read1.splitLnLhood   = 0.2;
-  evidenceTrack[fragLabel]                       = fragmentEvidence1;
-  std::array<double, SOMATIC_GT::SIZE> loglhood;
-  for (unsigned gt(0); gt < SOMATIC_GT::SIZE; ++gt) {
-    loglhood[gt] = 0;
-  }
-  // fragment was not evaluated for pair or split support for either allele
-  computeSomaticSampleLoghood(
-      spanningPairWeight,
-      evidenceTrack,
-      0.4,
-      0.25,
-      false,
-      false,
-      refChimeraProb,
-      altChimeraProb,
-      refSplitMapProb,
-      altSplitMapProb,
-      loglhood);
-  for (unsigned gt(0); gt < SOMATIC_GT::SIZE; ++gt) {
-    BOOST_REQUIRE_EQUAL(loglhood[gt], 0);
-  }
-
-  // fragment was evaluated for alt allele
-  fragmentEvidence1.read1.isScanned = true;
-  fragmentEvidence1.read2.isScanned = true;
-  fragmentEvidence1.read1.setAnchored(true);
-  fragmentEvidence1.read2.setAnchored(true);
-  fragmentEvidence1.alt.bp1.isFragmentSupport = true;
-  evidenceTrack[fragLabel]                    = fragmentEvidence1;
-  computeSomaticSampleLoghood(
-      spanningPairWeight,
-      evidenceTrack,
-      0.4,
-      0.25,
-      false,
-      false,
-      refChimeraProb,
-      altChimeraProb,
-      refSplitMapProb,
-      altSplitMapProb,
-      loglhood);
-  // above mentioned formula is applied in loglhood
-  BOOST_REQUIRE_CLOSE(loglhood[0], -0.2407945644533058, eps);   // REF
-  BOOST_REQUIRE_CLOSE(loglhood[1], -0.19269008924115461, eps);  // HET
-  BOOST_REQUIRE_CLOSE(loglhood[2], -0.14679383546496988, eps);  // HOM
-  BOOST_REQUIRE_CLOSE(loglhood[3], -0.20212764047652254, eps);  // SOM
-  BOOST_REQUIRE_CLOSE(loglhood[4], -0.21645309966549675, eps);  // NOISE
-}
-
-// Following cases need to be tested
-// 1. When somatic variant score is less than minimum somatic quality(30). Add minScoreLabel.
-// 2. when max depth of BP1 or BP2 is greater than chromosome depth. Add maxDepth Label.
-// 3. when MQ0 fraction of BP1 or BP2 is greater than control filtration based on MQ0 fraction (0.4). Add
-//    maxMQ0FracLabel
-BOOST_AUTO_TEST_CASE(test_scoreSomaticSV)
-{
-  // somatic caller options
-  CallOptionsSomatic      somaticOpt;
-  CallOptionsSomaticDeriv somaticDopt(somaticOpt);
-  // created chromsome depth file
-  const std::shared_ptr<TestChromosomeDepthFileMaker> depthFileMaker(new TestChromosomeDepthFileMaker());
-  const std::string                                   depthFileName(depthFileMaker.operator*().getFilename());
-  buildTestChromosomeDepthFile(depthFileName);
-  const bam_header_info bamHeader(buildTestBamHeader());
-  ChromDepthFilterUtil  depthFilterUtil(depthFileName, 2, bamHeader);
-
-  std::vector<JunctionCallInfo> junctionData;
-  junctionData.resize(1);  // adding one junction
-  // Adding few counts to tumor and normal sample
-  SVSampleInfo normalSampleInfo;
-  SVSampleInfo tumorSampleInfo;
-  normalSampleInfo.alt.confidentSpanningPairCount           = 100;
-  normalSampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.alt.confidentSplitReadCount              = 10;
-  normalSampleInfo.ref.confidentSpanningPairCount           = 100;
-  normalSampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.ref.confidentSplitReadCount              = 10;
-  tumorSampleInfo.alt.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.alt.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.alt.confidentSplitReadCount               = 10;
-  tumorSampleInfo.ref.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.ref.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.ref.confidentSplitReadCount               = 10;
-  // somatic SV score
-  SVScoreInfo scoreInfo;
-  scoreInfo.samples.push_back(normalSampleInfo);
-  scoreInfo.samples.push_back(tumorSampleInfo);
-  SVEvidence evidence;
-  evidence.samples.resize(2);
-  SVCandidate candidate;
-  junctionData[0].init(candidate, evidence, scoreInfo, 0.2);
-  SVScoreInfoSomatic somaticInfo;
-  // Designed the case-1 where somatic score is 0 which is less than 30,
-  // then add minSomaticScoreLabel label to this record.
-  scoreSomaticSV(2, 1, somaticOpt, somaticDopt, depthFilterUtil, junctionData, somaticInfo);
-  BOOST_REQUIRE_EQUAL(somaticInfo.filters.size(), 1);
-  BOOST_REQUIRE_EQUAL(*(somaticInfo.filters.begin()), somaticOpt.minSomaticScoreLabel);
-
-  // Designed the case-1 and case-2
-  // For case-2, max depth at BP2 = 120 which is greater than chrBar depth (16).
-  // Add maxDepthFilterLabel to this record.
-  scoreInfo.bp2MaxDepth = 120;
-  somaticInfo.filters.clear();
-  junctionData[0].init(candidate, evidence, scoreInfo, 0.2);
-  scoreSomaticSV(2, 1, somaticOpt, somaticDopt, depthFilterUtil, junctionData, somaticInfo);
-  BOOST_REQUIRE_EQUAL(somaticInfo.filters.size(), 2);
-  BOOST_REQUIRE_EQUAL(*(somaticInfo.filters.begin()), somaticOpt.maxDepthFilterLabel);
-  BOOST_REQUIRE_EQUAL(*(std::next(somaticInfo.filters.begin(), 1)), somaticOpt.minSomaticScoreLabel);
-
-  // Designed the case-1 and case-3
-  // For case-3, If fraction of mapping quality 0 reads more than 0.4 at any of the breakpoints,
-  // then add maxMQ0FracLabel label to this record.
-  // Here fraction of mapping quality 0 reads at BP2 is 0.6 which is greater than 0.4.
-  scoreInfo.bp2MaxDepth = 20;
-  scoreInfo.bp2MQ0Frac  = 0.6;
-  somaticInfo.filters.clear();
-  somaticInfo.somaticScore = 40;
-  junctionData[0].init(candidate, evidence, scoreInfo, 0.2);
-  scoreSomaticSV(2, 1, somaticOpt, somaticDopt, depthFilterUtil, junctionData, somaticInfo);
-  BOOST_REQUIRE_EQUAL(somaticInfo.filters.size(), 2);
-  BOOST_REQUIRE_EQUAL(*(somaticInfo.filters.begin()), somaticOpt.maxMQ0FracLabel);
-  BOOST_REQUIRE_EQUAL(*(std::next(somaticInfo.filters.begin(), 1)), somaticOpt.minSomaticScoreLabel);
-}
-
 // Test the fraction of zero mapping quality reads
 BOOST_AUTO_TEST_CASE(test_getBreakendMaxMappedDepthAndMQ0)
 {
@@ -2342,7 +1847,6 @@ BOOST_AUTO_TEST_CASE(test_getBreakendMaxMappedDepthAndMQ0)
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
   GSCOptions                      options;
   options.alignFileOpt.alignmentFilenames = {bamFilename};
-  options.alignFileOpt.isAlignmentTumor   = {false};
   SVScorer     scorer(options, scanner.operator*(), bamHeader);
   TestSVScorer fSVScorer;
   SVBreakend   breakend;
@@ -2352,20 +1856,18 @@ BOOST_AUTO_TEST_CASE(test_getBreakendMaxMappedDepthAndMQ0)
   unsigned maxDepth(1000);
   // No depth cutoff in this test cases
   // Total 18 reads have mapping quality 0 out of 20 reads. So fraction is 18/20 = 0.9
-  fSVScorer.getBreakendMaxMappedDepthAndMQ0(scorer, false, false, 100, breakend, maxDepth, mq0Frac);
+  fSVScorer.getBreakendMaxMappedDepthAndMQ0(scorer, false, 100, breakend, maxDepth, mq0Frac);
   BOOST_REQUIRE_CLOSE(mq0Frac, 0.9f, eps);
 
   // depth cutoff is 12. If depth of a location more than 12, it will return the fraction.
   // So here total 11 reads have mapping quality 0 out of 13 reads. So fraction is 11/13 = ~0.85.
-  fSVScorer.getBreakendMaxMappedDepthAndMQ0(scorer, false, true, 12, breakend, maxDepth, mq0Frac);
+  fSVScorer.getBreakendMaxMappedDepthAndMQ0(scorer, true, 12, breakend, maxDepth, mq0Frac);
   BOOST_REQUIRE_CLOSE(mq0Frac, 0.846153855f, eps);
 }
 
-// Test Whether a specific scoring model is performed based on arguments
+// Test that the germline scoring model is applied
 BOOST_AUTO_TEST_CASE(test_computeAllScoreModel)
 {
-  bool                            isSomatic(true);
-  bool                            isTumorOnly(true);
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
   GSCOptions                      options;
@@ -2373,7 +1875,7 @@ BOOST_AUTO_TEST_CASE(test_computeAllScoreModel)
   SVScorer         scorer(options, scanner.operator*(), bamHeader);
   TestSVScorer     fSVScorer;
   SVModelScoreInfo modelScoreInfo;
-  modelScoreInfo.setSampleCount(1, 1);
+  modelScoreInfo.setSampleCount(1);
 
   SVCandidate candidate;
   candidate.bp1.interval = GenomeInterval(0, 100, 200);
@@ -2387,9 +1889,6 @@ BOOST_AUTO_TEST_CASE(test_computeAllScoreModel)
   callInfo.init(candidate, evidence, scoreInfo, 0.2);
   std::vector<JunctionCallInfo> callInfos;
   callInfos.push_back(callInfo);
-  // Tumor scoring model
-  fSVScorer.computeAllScoreModels(scorer, !isSomatic, isTumorOnly, callInfos, modelScoreInfo);
-  BOOST_REQUIRE_EQUAL(modelScoreInfo.tumor.filters.size(), 1);
   callInfos.clear();
   candidate.setPrecise();
   candidate.bp1.interval                                        = GenomeInterval(0, 100, 200);
@@ -2410,55 +1909,9 @@ BOOST_AUTO_TEST_CASE(test_computeAllScoreModel)
   callInfo.init(candidate, evidence, scoreInfo, 0.2);
   callInfos.push_back(callInfo);
 
-  // Only Diploid scoring model
-  fSVScorer.computeAllScoreModels(scorer, !isSomatic, !isTumorOnly, callInfos, modelScoreInfo);
+  // The germline scoring model is applied
+  fSVScorer.computeAllScoreModels(scorer, callInfos, modelScoreInfo);
   BOOST_REQUIRE_EQUAL(modelScoreInfo.diploid.filters.size(), 4);
-
-  // somatic and diploid scoring model
-  CallOptionsSomatic                                  somaticOpt;
-  CallOptionsSomaticDeriv                             somaticDopt(somaticOpt);
-  const std::shared_ptr<TestChromosomeDepthFileMaker> depthFileMaker(new TestChromosomeDepthFileMaker());
-  const std::string                                   depthFileName(depthFileMaker.operator*().getFilename());
-  buildTestChromosomeDepthFile(depthFileName);
-  ChromDepthFilterUtil          depthFilterUtil(depthFileName, 2, bamHeader);
-  std::vector<JunctionCallInfo> junctionData;
-  junctionData.resize(1);
-  SVSampleInfo normalSampleInfo;
-  SVSampleInfo tumorSampleInfo;
-  normalSampleInfo.alt.confidentSpanningPairCount           = 100;
-  normalSampleInfo.alt.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.alt.confidentSplitReadCount              = 10;
-  normalSampleInfo.ref.confidentSpanningPairCount           = 100;
-  normalSampleInfo.ref.confidentSemiMappedSpanningPairCount = 50;
-  normalSampleInfo.ref.confidentSplitReadCount              = 10;
-  tumorSampleInfo.alt.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.alt.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.alt.confidentSplitReadCount               = 10;
-  tumorSampleInfo.ref.confidentSpanningPairCount            = 100;
-  tumorSampleInfo.ref.confidentSemiMappedSpanningPairCount  = 50;
-  tumorSampleInfo.ref.confidentSplitReadCount               = 10;
-  SVScoreInfo scoreInfo2;
-  scoreInfo2.samples.push_back(normalSampleInfo);
-  scoreInfo2.samples.push_back(tumorSampleInfo);
-  SVEvidence evidence2;
-  evidence2.samples.resize(2);
-  SVCandidate candidate2;
-  junctionData[0].init(candidate2, evidence2, scoreInfo2, 0.2);
-  SVScoreInfoSomatic somaticInfo;
-  somaticInfo.somaticScore = 20;
-  modelScoreInfo.setSampleCount(2, 1);
-  fSVScorer.computeAllScoreModels(scorer, isSomatic, !isTumorOnly, junctionData, modelScoreInfo);
-  BOOST_REQUIRE_EQUAL(modelScoreInfo.somatic.filters.size(), 1);
-
-  // RNA scoring model
-  modelScoreInfo.setSampleCount(1, 1);
-  GSCOptions options2;
-  options2.alignFileOpt.alignmentFilenames = {bamFilename};
-  options2.isRNA                           = true;
-  SVScorer     scorer2(options2, scanner.operator*(), bamHeader);
-  TestSVScorer fSVScorer2;
-  fSVScorer2.computeAllScoreModels(scorer2, !isSomatic, !isTumorOnly, callInfos, modelScoreInfo);
-  BOOST_REQUIRE_EQUAL(modelScoreInfo.rna.filters.size(), 2);
 }
 
 // Few minor logic checking have been done in this test case
@@ -2482,7 +1935,6 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
   std::unique_ptr<SVLocusScanner>      scanner(buildTestSVLocusScanner(bamHeader));
   GSCOptions                           options;
   options.alignFileOpt.alignmentFilenames = {bamFilename};
-  options.alignFileOpt.isAlignmentTumor   = {false};
   SVScorer scorer(options, scanner.operator*(), bamHeader);
   BOOST_CHECK_THROW(
       scorer.scoreSV(
@@ -2491,8 +1943,6 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
           mjSV,
           mjSVId,
           isJunctionFiltered,
-          false,
-          true,
           mjModelScoreInfo,
           mjJointModelScoreInfo,
           isMJEvent,
@@ -2514,11 +1964,11 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
   mjSVId.push_back(id1);
   isJunctionFiltered.push_back(false);
   SVModelScoreInfo modelScoreInfo;
-  modelScoreInfo.setSampleCount(1, 1);
+  modelScoreInfo.setSampleCount(1);
   mjModelScoreInfo.push_back(modelScoreInfo);
-  mjJointModelScoreInfo.setSampleCount(1, 1);
+  mjJointModelScoreInfo.setSampleCount(1);
   TestSVScorer fSVScorer;
-  fSVScorer.setSampleCount(scorer, 1, 1);
+  fSVScorer.setSampleCount(scorer, 1);
 
   std::string queryseq1 = "AGCTGACTGATCGATTTTTTACGTAGAGGAGCTTTGACGTATGAGCCTGATATGAGCCTG";
   std::string queryseq2 = "TGACGTATGAGCCTGATATGAGCCT";
@@ -2565,8 +2015,6 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
       mjSV,
       mjSVId,
       isJunctionFiltered,
-      false,
-      true,
       mjModelScoreInfo,
       mjJointModelScoreInfo,
       isMJEvent,
@@ -2587,9 +2035,9 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
   SVId id2;
   mjSVId.push_back(id2);
   isJunctionFiltered.push_back(false);
-  modelScoreInfo.setSampleCount(1, 1);
+  modelScoreInfo.setSampleCount(1);
   mjModelScoreInfo.push_back(modelScoreInfo);
-  mjJointModelScoreInfo.setSampleCount(1, 1);
+  mjJointModelScoreInfo.setSampleCount(1);
   SVCandidateAssemblyData candidateAssemblyData2;
   candidateAssemblyData2.bestAlignmentIndex = 0;
   Alignment alignment3;
@@ -2610,16 +2058,12 @@ BOOST_AUTO_TEST_CASE(test_ScoreSV)
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
       "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA");
   mjAssemblyData.push_back(candidateAssemblyData2);
-  //SVScorer scorer2(options, buildSVLocusScannerForSomatic(bamHeader).operator*(), bamHeader);
-  //fSVScorer.setSampleCount(scorer2, 1, 1);
   scorer.scoreSV(
       svData,
       mjAssemblyData,
       mjSV,
       mjSVId,
       isJunctionFiltered,
-      false,
-      true,
       mjModelScoreInfo,
       mjJointModelScoreInfo,
       isMJEvent,

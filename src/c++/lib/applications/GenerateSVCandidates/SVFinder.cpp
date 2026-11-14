@@ -75,13 +75,10 @@ SVFinder::SVFinder(
     std::shared_ptr<EdgeRuntimeTracker> edgeTrackerPtr,
     GSCEdgeStatsManager&                edgeStatMan)
   : _scanOpt(opt.scanOpt),
-    _isAlignmentTumor(opt.alignFileOpt.isAlignmentTumor),
     _readScanner(readScanner),
     _referenceFilename(opt.referenceFilename),
     _skipEvidenceSignalFilter(opt.skipEvidenceSignalFilter),
-    _isRNA(opt.isRNA),
     _isVerbose(opt.isVerbose),
-    _isSomatic(false),
     _edgeTrackerPtr(edgeTrackerPtr),
     _edgeStatMan(edgeStatMan)
 {
@@ -91,20 +88,6 @@ SVFinder::SVFinder(
   openBamStreams(opt.referenceFilename, opt.alignFileOpt.alignmentFilenames, _bamStreams);
 
   const unsigned bamCount(_bamStreams.size());
-  {
-    // assert expected bam order of all normal samples followed by all tumor samples,
-    // also, determine if this is a somatic run:
-    bool isFirstTumor(false);
-    for (unsigned bamIndex(0); bamIndex < bamCount; ++bamIndex) {
-      const bool isTumor(_isAlignmentTumor[bamIndex]);
-
-      if (isTumor) {
-        isFirstTumor = true;
-        _isSomatic   = true;
-      }
-      assert((!isFirstTumor) || isTumor);
-    }
-  }
 
   for (unsigned bamIndex(0); bamIndex < bamCount; ++bamIndex) {
     _spanningNoiseRate.push_back(getSpanningNoiseRate(readCounts, bamIndex));
@@ -126,7 +109,6 @@ static void addSVNodeRead(
     const bool                                 isExpectRepeat,
     const reference_contig_segment&            refSeq,
     const bool                                 isLocalNodeGraphEdgeNode1,
-    const bool                                 isGatherSubmapped,
     SVCandidateSetSequenceFragmentSampleGroup& svDataGroup,
     SampleEvidenceCounts&                      eCounts)
 {
@@ -134,8 +116,9 @@ static void addSVNodeRead(
 
   if (bamRead.map_qual() < scanner.getMinTier2MapQ()) return;
 
+  // reads below the default mapping quality threshold are not used as candidate evidence
   const bool isSubMapped(bamRead.map_qual() < scanner.getMinMapQ());
-  if ((!isGatherSubmapped) && isSubMapped) return;
+  if (isSubMapped) return;
 
   svDataGroup.increment(isSubMapped);
 
@@ -271,15 +254,11 @@ void SVFinder::addSVNodeData(
   }
   const pos_t           searchBeginPos(searchInterval.range.begin_pos());
   const pos_t           searchEndPos(searchInterval.range.end_pos());
-  std::vector<unsigned> normalDepthBuffer(searchInterval.range.size(), 0);
+  std::vector<unsigned> depthBuffer(searchInterval.range.size(), 0);
 
   // iterate through reads, test reads for association and add to svData:
   unsigned bamIndex(0);
   for (streamPtr& bamPtr : _bamStreams) {
-    const bool isTumor(_isAlignmentTumor[bamIndex]);
-
-    const bool isGatherSubmapped(_isSomatic && (!isTumor));
-
     SVCandidateSetSequenceFragmentSampleGroup& svDataGroup(svData.getDataGroup(bamIndex));
     bam_streamer&                              readStream(*bamPtr);
 
@@ -302,13 +281,11 @@ void SVFinder::addSVNodeData(
       if (isReadUnmappedOrFilteredCore(bamRead)) continue;
 
       if (isMaxDepth) {
-        if (!isTumor) {
-          addReadToDepthEst(bamRead, searchBeginPos, normalDepthBuffer);
-        }
+        addReadToDepthEst(bamRead, searchBeginPos, depthBuffer);
 
         assert(refPos < searchEndPos);
         const pos_t depthOffset(refPos - searchBeginPos);
-        if ((depthOffset >= 0) && (normalDepthBuffer[depthOffset] > maxDepth)) continue;
+        if ((depthOffset >= 0) && (depthBuffer[depthOffset] > maxDepth)) continue;
       }
 
       // test if read supports an SV on this edge, if so, add to SVData
@@ -322,7 +299,6 @@ void SVFinder::addSVNodeData(
           isExpectRepeat,
           localNodeRefSeq,
           isLocalNodeGraphEdgeNode1,
-          isGatherSubmapped,
           svDataGroup,
           _eCounts);
     }
@@ -589,16 +565,6 @@ void SVFinder::assignFragmentObservationsToSVCandidates(
 #ifdef DEBUG_SVDATA
     log_os << __FUNCTION__ << ": Starting assignment for read cand: " << readCand << "\n";
 #endif
-    if (_isRNA) {
-      int minLength = isCis(readCand) ? _scanOpt.minRNACisLength : _scanOpt.minRNALength;
-      if (isSVBelowMinSize(readCand, minLength)) {
-#ifdef DEBUG_SVDATA
-        log_os << __FUNCTION__ << ": Filtered short RNA Candidate (< " << minLength << ")\n";
-#endif
-        continue;
-      }
-    }
-
     // remove candidates which don't match the current edge:
     //
     const bool isComplexCand(isComplexSV(readCand));
@@ -1043,23 +1009,6 @@ void SVFinder::getCandidatesFromData(
       static const bool isAnchored(true);
       processSequenceFragment(
           node1, node2, bamHeader, node1RefSeq, node2RefSeq, bamIndex, isAnchored, svs, fragment, stats);
-    }
-  }
-
-  if (_isSomatic) {
-    for (unsigned bamIndex(0); bamIndex < bamCount; ++bamIndex) {
-      // for somatic calling we're only interested in submapped read processing for the normal sample:
-      const bool isTumor(_isAlignmentTumor[bamIndex]);
-      if (isTumor) continue;
-
-      SVCandidateSetSequenceFragmentSampleGroup& svDataGroup(svData.getDataGroup(bamIndex));
-      for (SVCandidateSetSequenceFragment& pair : svDataGroup) {
-        if (pair.isAnchored()) continue;
-
-        static const bool isAnchored(false);
-        processSequenceFragment(
-            node1, node2, bamHeader, node1RefSeq, node2RefSeq, bamIndex, isAnchored, svs, pair, stats);
-      }
     }
   }
 

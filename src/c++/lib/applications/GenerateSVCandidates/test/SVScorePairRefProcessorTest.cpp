@@ -33,14 +33,12 @@ BOOST_AUTO_TEST_SUITE(SVScorePairRefProcessor_test_suite)
 // 3. Fragment length should be less than or equal to max fragment length of the sample
 // 4. minimum of (breakpoint center pos - fragment start + 1) and (fragment end - breakpoint center pos)
 //    should be greater than minimum fragment threshold which is 50
-// 5. For RNA, bam read should be properly paired.
-// 6. If mate location is less than this read location, fragment support is calculated based on mate's start.
+// 5. If mate location is less than this read location, fragment support is calculated based on mate's start.
 BOOST_AUTO_TEST_CASE(test_processClearedRecord)
 {
-  const std::vector<bool>         bamFileInfo = {false};  // whether normal bam or tumor bam file
   const bam_header_info           bamHeader(buildTestBamHeader());
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options1(false);  // false means DNA options
+  const PairOptions               options1;
   SVCandidate                     candidate;
   candidate.insertSeq =
       "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
@@ -51,7 +49,7 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
   candidate.bp2.interval.range = known_pos_range2(250, 370);
   SVEvidence evidence;
   evidence.samples.resize(1);
-  SVScorePairRefProcessor processor1(bamFileInfo, scanner.operator*(), options1, candidate, true, evidence);
+  SVScorePairRefProcessor processor1(scanner.operator*(), options1, candidate, true, evidence);
   // So Search range start = 159 - (125-50) = 84
   // range end = 159 + (125-50) + 1 = 235
   processor1.nextBamIndex(0);
@@ -106,31 +104,6 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
   bamRecord5.set_qname("bamRecord5");
   processor1.processClearedRecord(id, bamRecord5, suppFrags);
   BOOST_REQUIRE(evidence.getSampleEvidence(0)[bamRecord5.qname()].ref.bp1.isFragmentSupport);
-
-  // The following two test cases are for RNA sample
-  const PairOptions       options2(true);
-  SVScorePairRefProcessor processor2(bamFileInfo, scanner.operator*(), options2, candidate, true, evidence);
-  // For RNA, read should be in proper pair. Following
-  // bam read is not in proper pair. As a result of this, this fragment is
-  // not supporting allele on BP1.
-  bam_record bamRecord6;
-  buildTestBamRecord(bamRecord6, 0, 109, 0, 200, 35, 15, "35M", querySeq1, 150);
-  bamRecord6.set_qname("bamRecord6");
-  processor2.nextBamIndex(0);
-  processor2.processClearedRecord(id, bamRecord6, suppFrags);
-  BOOST_REQUIRE(!evidence.getSampleEvidence(0)[bamRecord6.qname()].ref.bp1.isFragmentSupport);
-
-  SVScorePairRefProcessor processor3(bamFileInfo, scanner.operator*(), options2, candidate, true, evidence);
-  // All the above points are satisfied for RNA sample.
-  // Also fragment is in proper pair.
-  // So this fragment is supporting allele on BP1.
-  bam_record bamRecord7;
-  buildTestBamRecord(bamRecord7, 0, 109, 0, 200, 35, 15, "35M", querySeq1, 150);
-  bamRecord7.set_qname("bamRecord7");
-  bamRecord7.get_data()->core.flag ^= BAM_FLAG::PROPER_PAIR;
-  processor3.nextBamIndex(0);
-  processor3.processClearedRecord(id, bamRecord7, suppFrags);
-  BOOST_REQUIRE(evidence.getSampleEvidence(0)[bamRecord7.qname()].ref.bp1.isFragmentSupport);
 
   // Case-6 is designed here where mate location
   // is less than this read's start location. Fragment support is

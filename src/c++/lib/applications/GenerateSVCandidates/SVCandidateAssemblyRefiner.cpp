@@ -96,17 +96,13 @@ static bool isLowQualitySpanningSVAlignment(
     const unsigned              maxQCRefSpan,
     const AlignmentScores<int>& alignmentScores,
     const bool                  isLeadingPath,
-    const bool                  isRNA,
     const ALIGNPATH::path_t&    input_apath)
 {
   /// Require min length of each contig sub-alignment even after off-reference clipping
-  unsigned minAlignReadLength(30);
+  static const unsigned minAlignReadLength(30);
 
   /// Require min fraction of optimal score in each contig sub-alignment
   static const float minScoreFrac(0.75);
-  if (isRNA) {
-    minAlignReadLength = 20;
-  }
 
   ALIGNPATH::path_t apath(input_apath);
 
@@ -1024,28 +1020,21 @@ SVCandidateAssemblyRefiner::SVCandidateAssemblyRefiner(
         opt.chromDepthFilename,
         header,
         counts,
-        opt.isRNA,
         edgeTrackerPtr->remoteReadRetrievalTime),
     _spanningAssembler(
         opt.scanOpt,
-        (opt.isRNA ? opt.refineOpt.RNAspanningAssembleOpt : opt.refineOpt.spanningAssembleOpt),
+        opt.refineOpt.spanningAssembleOpt,
         opt.alignFileOpt,
         opt.referenceFilename,
         opt.statsFilename,
         opt.chromDepthFilename,
         header,
         counts,
-        opt.isRNA,
         edgeTrackerPtr->remoteReadRetrievalTime),
     _largeSVAligner(opt.refineOpt.largeSVAlignScores, opt.refineOpt.largeGapOpenScore),
     _largeInsertEdgeAligner(opt.refineOpt.largeInsertEdgeAlignScores),
     _largeInsertCompleteAligner(opt.refineOpt.largeInsertCompleteAlignScores),
     _spanningAligner(opt.refineOpt.spanningAlignScores, opt.refineOpt.jumpScore),
-    _RNASpanningAligner(
-        opt.refineOpt.RNAspanningAlignScores,
-        opt.refineOpt.RNAJumpScore,
-        opt.refineOpt.RNAIntronOpenScore,
-        opt.refineOpt.RNAIntronOffEdgeScore),
     _contigFilterAlignmentScores(opt.refineOpt.contigFilterScores)
 {
 }
@@ -1079,113 +1068,6 @@ void SVCandidateAssemblyRefiner::getCandidateAssemblyData(
     assert(false && "Unknown candidate SV type");
   }
 }
-
-/// Represents a stretch of reference sequence excluded from alignment by the kmer matcher.
-struct exclusion_block {
-  exclusion_block(const unsigned s, const unsigned l, const unsigned sp) : start(s), length(l), nSpacer(sp) {}
-  unsigned start;    // Start of excluded region
-  unsigned length;   // Nunmber of bp excluded
-  unsigned nSpacer;  // Number of 'N' added in place of excluded sequence
-};
-
-/// Translate a reduced reference position to the original reference coordinates
-static unsigned translateMaskedPos(const std::vector<exclusion_block>& exclBlocks, const unsigned maskedPos)
-{
-  int offset = 0;
-  for (const auto& cblock : exclBlocks) {
-    if (cblock.start > (offset + maskedPos)) break;
-    offset += cblock.length - cblock.nSpacer;
-  }
-  return offset + maskedPos;
-}
-
-/// Translate an alignment made against a reduced reference to the original reference coordinates
-static bool translateMaskedAlignment(Alignment& align, const std::vector<exclusion_block>& exclBlocks)
-{
-  using namespace ALIGNPATH;
-#ifdef DEBUG_KMER
-  log_os << __FUNCTION__ << " original: " << align << "\n";
-#endif
-  path_t newPath;
-  pos_t  cpos = align.beginPos;
-  for (const path_segment& seg : align.apath) {
-    if (!is_segment_type_ref_length(seg.type)) {
-      newPath.push_back(seg);
-    } else {
-      const unsigned length =
-          translateMaskedPos(exclBlocks, cpos + seg.length) - translateMaskedPos(exclBlocks, cpos);
-      if (is_segment_align_match(seg.type) && (length != seg.length)) return false;
-#ifdef DEBUG_KMER
-      log_os << __FUNCTION__ << " SEGMENT " << seg.type << " " << seg.length << "\n";
-      log_os << "\tlength " << length << "\n";
-      log_os << "\tcpos " << cpos << "\n";
-#endif
-      cpos += seg.length;
-      newPath.emplace_back(seg.type, length);
-    }
-  }
-  if (align.apath.size() > 0) {
-    align.beginPos = translateMaskedPos(exclBlocks, align.beginPos);
-    align.apath    = newPath;
-  }
-#ifdef DEBUG_KMER
-  log_os << __FUNCTION__ << " final: " << align << "\n";
-#endif
-  return true;
-}
-
-namespace {
-
-/// Returns a reduced reference sequence where long stretches without kmer matches to the contig are removed
-template <typename SymIter>
-std::string kmerMaskReference(
-    const SymIter                 refSeqStart,
-    const SymIter                 refSeqEnd,
-    const std::string&            contig,
-    const int                     nSpacer,
-    std::vector<exclusion_block>& exclBlocks)
-{
-  // Hash all kmers in the contig
-  static const int                merSize(10);
-  std::unordered_set<std::string> contigHash;
-  for (unsigned contigMerIndex(0); contigMerIndex < (contig.size() - (merSize - 1)); ++contigMerIndex) {
-    contigHash.insert(contig.substr(contigMerIndex, merSize));
-  }
-  // Mask the reference (and keep track of excluded regions for coordinate translation later)
-  static const int minExclusion(1000);
-  static const int padding(50);  // Amount of sequence included around each kmer hit.
-  std::string      maskedRef;
-  const SymIter    maxRef       = refSeqEnd - (merSize - 1);
-  SymIter          potExclStart = refSeqStart;
-  SymIter          inclStart    = refSeqStart;
-  for (SymIter refIt = refSeqStart; refIt != maxRef; refIt++) {
-    if (contigHash.count(std::string(refIt, refIt + merSize)) != 0) {
-      if ((refIt - potExclStart) > (minExclusion + padding)) {
-        unsigned spacer(0);
-        if (potExclStart > refSeqStart) {
-          maskedRef.append(std::string(inclStart, potExclStart));
-          maskedRef.append(nSpacer, 'N');
-          spacer = nSpacer;
-        }
-        inclStart = refIt - padding;
-        exclBlocks.emplace_back(potExclStart - refSeqStart, inclStart - potExclStart, spacer);
-      }
-      potExclStart = refIt + padding;
-    }
-  }
-  maskedRef.append(std::string(inclStart, std::min(maxRef, potExclStart)));
-#ifdef DEBUG_KMER
-  log_os << __FUNCTION__ << "Reduced to " << maskedRef << '\n';
-  log_os << __FUNCTION__ << " exclBlocks\n\t";
-  for (const auto block : exclBlocks)
-    log_os << " " << block.start << ":" << block.length << ":" << block.nSpacer;
-  log_os << "\n";
-#endif
-  if (maskedRef.empty()) maskedRef.append(nSpacer, 'N');
-  return maskedRef;
-}
-
-}  // namespace
 
 /// Convert jump alignment results into an SVCandidate
 ///
@@ -1287,86 +1169,29 @@ static bool isJumpAlignmentQCFail(const JumpAlignmentResult<int>& jumpAlignment)
 ///
 /// \return True if the jump alignment result is low quality and should be filtered out
 static bool isLowQualityJumpAlignment(
-    const JumpAlignmentResult<int>& alignment, const AlignmentScores<int>& alignmentScores, const bool isRNA)
+    const JumpAlignmentResult<int>& alignment, const AlignmentScores<int>& alignmentScores)
 {
   using namespace ALIGNPATH;
   bool                  isLowQualityAlign1(true);
   bool                  isLowQualityAlign2(true);
   static const unsigned spanSet[] = {75, 100, 200};
-  // Use shorter regions for RNA contig alignment QC since reads and inserts
-  // (and hence assembled contigs) are typically shorter
-  const unsigned spanSetRna[] = {36, 75, 100};
 
-  for (const unsigned maxQCRefSpan : isRNA ? spanSetRna : spanSet) {
-    const unsigned qcSpan1 = maxQCRefSpan + (isRNA ? apath_spliced_length(alignment.align1.apath) : 0);
-    if (!isLowQualitySpanningSVAlignment(qcSpan1, alignmentScores, true, isRNA, alignment.align1.apath)) {
+  for (const unsigned maxQCRefSpan : spanSet) {
+    if (!isLowQualitySpanningSVAlignment(maxQCRefSpan, alignmentScores, true, alignment.align1.apath)) {
       isLowQualityAlign1 = false;
     }
-    const unsigned qcSpan2 = maxQCRefSpan + (isRNA ? apath_spliced_length(alignment.align2.apath) : 0);
-    if (!isLowQualitySpanningSVAlignment(qcSpan2, alignmentScores, false, isRNA, alignment.align2.apath)) {
+    if (!isLowQualitySpanningSVAlignment(maxQCRefSpan, alignmentScores, false, alignment.align2.apath)) {
       isLowQualityAlign2 = false;
     }
   }
   return (isLowQualityAlign1 || isLowQualityAlign2);
 }
 
-/// Filter fusion contigs and select the 'best' one, based on alignment score and supporting read count
-static bool selectJumpContigRNA(
-    SVCandidateAssemblyData& assemblyData, const AlignmentScores<int>& alignmentScores)
-{
-  static const bool isRNA(true);
-  const unsigned    contigCount(assemblyData.contigs.size());
-
-  std::vector<int> goodContigIndices;
-  for (unsigned contigIndex = 0; contigIndex < contigCount; contigIndex++) {
-    const JumpAlignmentResult<int>& alignment(assemblyData.spanningAlignments[contigIndex]);
-#ifdef DEBUG_REFINER
-    log_os << __FUNCTION__ << ": Checking contig alignment: " << contigIndex << "\n";
-#endif
-    if (isJumpAlignmentQCFail(alignment)) continue;
-#ifdef DEBUG_REFINER
-    log_os << __FUNCTION__ << ": contig alignment initial okay: " << contigIndex << "\n";
-#endif
-    if (isLowQualityJumpAlignment(alignment, alignmentScores, isRNA)) continue;
-#ifdef DEBUG_REFINER
-    log_os << __FUNCTION__ << ": contig alignment okay: " << contigIndex << "\n";
-#endif
-    goodContigIndices.push_back(contigIndex);
-  }
-  if (goodContigIndices.empty()) return false;
-  // Find the highest alignment score
-  int      maxAlnScore = 0;
-  unsigned selectedContigIndex(goodContigIndices.front());
-  for (unsigned index : goodContigIndices) {
-    if (assemblyData.spanningAlignments[index].score > maxAlnScore) {
-      maxAlnScore         = assemblyData.spanningAlignments[index].score;
-      selectedContigIndex = index;
-    }
-  }
-  // Pick the contig with the most supporting reads that has an alignment score at least half as high as the
-  // highest-scoring contig
-  for (unsigned index : goodContigIndices) {
-    const bool sufficientScore(assemblyData.spanningAlignments[index].score * 2 > maxAlnScore);
-    const bool moreReads(
-        assemblyData.contigs[index].supportReads.size() >
-        assemblyData.contigs[selectedContigIndex].supportReads.size());
-    if (sufficientScore && moreReads) selectedContigIndex = index;
-  }
-#ifdef DEBUG_REFINER
-  log_os << __FUNCTION__ << ": selected contig: " << selectedContigIndex << "\n";
-#endif
-  assemblyData.bestAlignmentIndex = selectedContigIndex;
-  return true;
-}
-
 /// Filter breakpoint contigs for large SV candidates
 /// Select the 'best' one based on alignment score and check alignment on selected contig
-// TODO Consider making this more like the RNA case, e.g. all alignment checks before selection and pick the
-// best passing one.
-static bool selectJumpContigDNA(
+static bool selectJumpContig(
     SVCandidateAssemblyData& assemblyData, const AlignmentScores<int>& alignmentScores)
 {
-  static const bool isRNA(false);
   const auto&       alignments(assemblyData.spanningAlignments);
   const unsigned    contigCount(assemblyData.contigs.size());
 
@@ -1390,7 +1215,7 @@ static bool selectJumpContigDNA(
   log_os << __FUNCTION__ << ": selected contig: " << maxAlignContigIndex << "\n";
 #endif
   if ((maxAlignContigIndex == -1) ||
-      (isLowQualityJumpAlignment(alignments[maxAlignContigIndex], alignmentScores, isRNA))) {
+      (isLowQualityJumpAlignment(alignments[maxAlignContigIndex], alignmentScores))) {
     return false;
   }
   // ok, passed QC -- mark the high-scoring alignment as usable for
@@ -1434,12 +1259,6 @@ bool static assembleJumpContigs(
   assemblyData.isSpanning = true;
   BPOrientation& bporient(assemblyData.bporient);
 
-  bporient.isBp1First              = sv.isForward();
-  bporient.isTranscriptStrandKnown = sv.isTranscriptStrandKnown();
-  if (opt.isRNA) {
-    bporient.isBp1First =
-        !sv.isForward();  // RNA-seq reads generate candidates in the opposite direction of the RNA
-  }
   //
   // based on sv candidate, we classify the expected relationship
   // between the contig and the sv breakends:
@@ -1524,10 +1343,7 @@ bool static assembleJumpContigs(
 /// updated during contig alignment
 ///
 void static alignJumpContigs(
-    const GSCOptions&                   opt,
-    const SVCandidate&                  sv,
     const GlobalJumpAligner<int>&       spanningAligner,
-    const GlobalJumpIntronAligner<int>& RNASpanningAligner,
     AlignData&                          alignData,
     SVCandidateAssemblyData&            assemblyData)
 {
@@ -1582,140 +1398,65 @@ void static alignJumpContigs(
 
     JumpAlignmentResult<int>& alignment(assemblyData.spanningAlignments[contigIndex]);
 
-    if (opt.isRNA) {
 #ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " RNA alignment\n";
+    log_os << __FUNCTION__ << " Ref1 for alignment: "
+           << bp1refSeq.substr(
+                  alignData.align1LeadingCut,
+                  bp1refSeq.size() - alignData.align1LeadingCut - alignData.align1TrailingCut)
+           << '\n';
+    log_os << __FUNCTION__ << " Ref2 for alignment: "
+           << bp2refSeq.substr(
+                  alignData.align2LeadingCut,
+                  bp2refSeq.size() - alignData.align2LeadingCut - alignData.align2TrailingCut)
+           << '\n';
 #endif
-      static const int             nSpacer(25);
-      std::vector<exclusion_block> exclBlocks1;
-      const std::string            cutRef1 = kmerMaskReference(
-          align1RefStrPtr->begin() + alignData.align1LeadingCut,
-          align1RefStrPtr->end() - alignData.align1TrailingCut,
-          contig.seq,
-          nSpacer,
-          exclBlocks1);
-      std::vector<exclusion_block> exclBlocks2;
-      const std::string            cutRef2 = kmerMaskReference(
-          align2RefStrPtr->begin() + alignData.align2LeadingCut,
-          align2RefStrPtr->end() - alignData.align2TrailingCut,
-          contig.seq,
-          nSpacer,
-          exclBlocks2);
-#ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " Kmer-masked references\n";
-      log_os << "\t ref Lengths " << align1RefStrPtr->size() << " " << align2RefStrPtr->size() << "\n";
-      log_os << "\t cutref Lengths " << cutRef1.size() << " " << cutRef2.size() << "\n";
-#endif
+    spanningAligner.align(
+        contig.seq.begin(),
+        contig.seq.end(),
+        align1RefStrPtr->begin() + alignData.align1LeadingCut,
+        align1RefStrPtr->end() - alignData.align1TrailingCut,
+        align2RefStrPtr->begin() + alignData.align2LeadingCut,
+        align2RefStrPtr->end() - alignData.align2TrailingCut,
+        alignment);
 
-      bool bp1RnaStrandFw;  // Is the RNA fusion transcript on the forward strand at bp1
-      bool bp2RnaStrandFw;
-      if (bporient.isBp1First) {
-        bp1RnaStrandFw = (sv.bp1.state == SVBreakendState::RIGHT_OPEN);
-        bp2RnaStrandFw = (sv.bp2.state == SVBreakendState::LEFT_OPEN);
-      } else {
-        bp1RnaStrandFw = (sv.bp1.state == SVBreakendState::LEFT_OPEN);
-        bp2RnaStrandFw = (sv.bp2.state == SVBreakendState::RIGHT_OPEN);
-      }
-      // Should we look for the splice motif on the fw or rev strand in the bp1 ref seq
-      bool bp1Fw = (bporient.isBp1Reversed != bp1RnaStrandFw);
-      bool bp2Fw = (bporient.isBp2Reversed != bp2RnaStrandFw);
-      // bp1 and bp2 sequences have been swapped above
-      if (bporient.isBp2AlignedFirst) std::swap(bp1Fw, bp2Fw);
-
+    const bool  hasJumpInsert(alignment.jumpInsertSize > 0);
+    const pos_t minAlignBuffer(5);
+    const pos_t ref1EndPos(
+        align1RefStrPtr->size() - alignData.align1LeadingCut - alignData.align1TrailingCut - 1);
+    const pos_t align1EndPos(alignment.align1.beginPos + apath_ref_length(alignment.align1.apath));
+    // Breakend from align1 is close to the end position of reference sequence
+    const bool isBp1CloseToRef1End(ref1EndPos - align1EndPos < minAlignBuffer);
+    // Breakend from align2 is close to the start position of reference sequence
+    const bool isBp2CloseToRef2Start(alignment.align2.beginPos < minAlignBuffer);
+    // When there is any breakend close to either end of reference sequence,
+    // and when the jump alignment includes an insert,
+    // the contig need be realigned with longer reference sequences
+    // (i.e. the reference sequences without cutting).
+    //
+    // Note that the reference sequences without cutting is expanded at most by extraRefSplitSize(default
+    // 100bp). Therefore this one-time expansion may not resolve the very rare case, where the breakend is
+    // located more than extraRefSplitSize away from the reference end.
+    if (hasJumpInsert && (isBp1CloseToRef1End || isBp2CloseToRef2Start)) {
+      alignData.align1LeadingCut  = 0;
+      alignData.align1TrailingCut = 0;
+      alignData.align2LeadingCut  = 0;
+      alignData.align2TrailingCut = 0;
 #ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " isTranscriptStrandKnown: " << bporient.isTranscriptStrandKnown
-             << "; bp1Fw: " << bp1Fw << " ; bp2Fw: " << bp2Fw << '\n';
-#endif
-      RNASpanningAligner.align(
-          contig.seq.begin(),
-          contig.seq.end(),
-          cutRef1.begin(),
-          cutRef1.end(),
-          cutRef2.begin(),
-          cutRef2.end(),
-          bp1Fw,
-          bp2Fw,
-          bporient.isTranscriptStrandKnown,
-          alignment);
-
-#ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " Masked 1: " << alignment.align1 << '\n';
-      log_os << __FUNCTION__ << " Masked 2: " << alignment.align2 << '\n';
-#endif
-      if (!(translateMaskedAlignment(alignment.align1, exclBlocks1) &&
-            translateMaskedAlignment(alignment.align2, exclBlocks2))) {
-#ifdef DEBUG_REFINER
-        log_os << __FUNCTION__ << " Failed to fix kmer-masked alignment\n";
-#endif
-        alignment.align1.clear();
-        alignment.align2.clear();
-      }
-#ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " Fixed 1: " << alignment.align1 << '\n';
-      log_os << __FUNCTION__ << " Fixed 2: " << alignment.align2 << '\n';
-#endif
-    } else {
-#ifdef DEBUG_REFINER
-      log_os << __FUNCTION__ << " Ref1 for alignment: "
-             << bp1refSeq.substr(
-                    alignData.align1LeadingCut,
-                    bp1refSeq.size() - alignData.align1LeadingCut - alignData.align1TrailingCut)
-             << '\n';
-      log_os << __FUNCTION__ << " Ref2 for alignment: "
-             << bp2refSeq.substr(
-                    alignData.align2LeadingCut,
-                    bp2refSeq.size() - alignData.align2LeadingCut - alignData.align2TrailingCut)
-             << '\n';
+      log_os << __FUNCTION__ << " Aglignment: " << alignment << "\n"
+             << "The breakend is close to the start/end position of reference sequence!\n";
+      log_os << __FUNCTION__ << " Realign with longer reference sequences: \n"
+             << " Ref1 for alignment: " << bp1refSeq << '\n'
+             << " Ref2 for alignment: " << bp2refSeq << '\n';
 #endif
       spanningAligner.align(
           contig.seq.begin(),
           contig.seq.end(),
-          align1RefStrPtr->begin() + alignData.align1LeadingCut,
-          align1RefStrPtr->end() - alignData.align1TrailingCut,
-          align2RefStrPtr->begin() + alignData.align2LeadingCut,
-          align2RefStrPtr->end() - alignData.align2TrailingCut,
+          align1RefStrPtr->begin(),
+          align1RefStrPtr->end(),
+          align2RefStrPtr->begin(),
+          align2RefStrPtr->end(),
           alignment);
-
-      const bool  hasJumpInsert(alignment.jumpInsertSize > 0);
-      const pos_t minAlignBuffer(5);
-      const pos_t ref1EndPos(
-          align1RefStrPtr->size() - alignData.align1LeadingCut - alignData.align1TrailingCut - 1);
-      const pos_t align1EndPos(alignment.align1.beginPos + apath_ref_length(alignment.align1.apath));
-      // Breakend from align1 is close to the end position of reference sequence
-      const bool isBp1CloseToRef1End(ref1EndPos - align1EndPos < minAlignBuffer);
-      // Breakend from align2 is close to the start position of reference sequence
-      const bool isBp2CloseToRef2Start(alignment.align2.beginPos < minAlignBuffer);
-      // When there is any breakend close to either end of reference sequence,
-      // and when the jump alignment includes an insert,
-      // the contig need be realigned with longer reference sequences
-      // (i.e. the reference sequences without cutting).
-      //
-      // Note that the reference sequences without cutting is expanded at most by extraRefSplitSize(default
-      // 100bp). Therefore this one-time expansion may not resolve the very rare case, where the breakend is
-      // located more than extraRefSplitSize away from the reference end.
-      if (hasJumpInsert && (isBp1CloseToRef1End || isBp2CloseToRef2Start)) {
-        alignData.align1LeadingCut  = 0;
-        alignData.align1TrailingCut = 0;
-        alignData.align2LeadingCut  = 0;
-        alignData.align2TrailingCut = 0;
-#ifdef DEBUG_REFINER
-        log_os << __FUNCTION__ << " Aglignment: " << alignment << "\n"
-               << "The breakend is close to the start/end position of reference sequence!\n";
-        log_os << __FUNCTION__ << " Realign with longer reference sequences: \n"
-               << " Ref1 for alignment: " << bp1refSeq << '\n'
-               << " Ref2 for alignment: " << bp2refSeq << '\n';
-#endif
-        spanningAligner.align(
-            contig.seq.begin(),
-            contig.seq.end(),
-            align1RefStrPtr->begin(),
-            align1RefStrPtr->end(),
-            align2RefStrPtr->begin(),
-            align2RefStrPtr->end(),
-            alignment);
-      }
     }
-
     alignment.align1.beginPos += alignData.align1LeadingCut;
     alignment.align2.beginPos += alignData.align2LeadingCut;
 
@@ -1749,9 +1490,6 @@ void SVCandidateAssemblyRefiner::getJumpAssembly(
 {
 #ifdef DEBUG_REFINER
   log_os << __FUNCTION__ << ": START\n";
-  if (_opt.isRNA) {
-    log_os << __FUNCTION__ << ": RNA\n";
-  }
 #endif
 
   // This determines by how much we extend the reference sequence
@@ -1759,7 +1497,7 @@ void SVCandidateAssemblyRefiner::getJumpAssembly(
   // operations. It is possible to discover breakends and small
   // indels in this expanded region.
   //
-  const pos_t extraRefEdgeSize(_opt.isRNA ? 25000 : 250);
+  const pos_t extraRefEdgeSize(250);
   // This determines by how much we extend the reference sequence
   // around the breakend region for all operations except for the
   // initial alignment of the contig back to the reference.
@@ -1821,15 +1559,10 @@ void SVCandidateAssemblyRefiner::getJumpAssembly(
   if (!isAssemblySuccess) return;
 
   // Align candidate contigs back to reference
-  alignJumpContigs(_opt, sv, _spanningAligner, _RNASpanningAligner, alignData, assemblyData);
+  alignJumpContigs(_spanningAligner, alignData, assemblyData);
 
   // Select the contig with the highest alignment score
-  bool isContigSelected(false);
-  if (_opt.isRNA) {
-    isContigSelected = selectJumpContigRNA(assemblyData, _contigFilterAlignmentScores);
-  } else {
-    isContigSelected = selectJumpContigDNA(assemblyData, _contigFilterAlignmentScores);
-  }
+  const bool isContigSelected(selectJumpContig(assemblyData, _contigFilterAlignmentScores));
   if (!isContigSelected) return;
 
 #ifdef DEBUG_REFINER

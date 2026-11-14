@@ -189,7 +189,6 @@ static void updateSABreakend(
 /// etc..)
 static SVObservation getSplitSACandidate(
     const ReadScannerDerivOptions&                 dopt,
-    const bam_record&                              localRead,
     const SimpleAlignment&                         localAlign,
     const SimpleAlignment&                         remoteAlign,
     const SourceOfSVEvidenceInDNAFragment::index_t dnaFragmentSVEvidenceSource,
@@ -212,17 +211,6 @@ static SVObservation getSplitSACandidate(
   updateSABreakend(dopt, localAlign, localBreakend, bamHeader);
   updateSABreakend(dopt, remoteAlign, remoteBreakend, bamHeader);
 
-  // If the local (bp1) alignment is split downstream (on the right side) then this read goes from bp1 -> bp2.
-  // If it is a forward read (e.g. read1 on + strand), this means it's a forward read for this event.
-  const bool isSplitDownstream(isSplitOpenDownstream(localAlign.path));
-  const bool isReadFw = (localRead.is_first() == localRead.is_fwd_strand());
-  if (dopt.isTranscriptStrandKnown) {
-    if (isReadFw == isSplitDownstream) {
-      sv.forwardTranscriptStrandReadCount += 1;
-    } else {
-      sv.reverseTranscriptStrandReadCount += 1;
-    }
-  }
   return sv;
 }
 
@@ -341,7 +329,7 @@ static void getSACandidatesFromRead(
 
   for (const auto& ral : remoteAlign) {
     candidates.push_back(
-        getSplitSACandidate(dopt, localRead, localAlign, ral, dnaFragmentSVEvidenceSource, bamHeader));
+        getSplitSACandidate(dopt, localAlign, ral, dnaFragmentSVEvidenceSource, bamHeader));
 #ifdef DEBUG_SCANNER
     log_os << __FUNCTION__ << ": evaluating SA sv for inclusion: " << candidates.back() << "\n";
 #endif
@@ -564,19 +552,14 @@ struct AlignmentPairAnalyzer {
   ///
   /// \param[in] isRemoteAlignmentInferred True if remote read alignment was inferred from the local read
   /// alignment instead of directly observed from the remote read alignment record
-  ///
-  /// \param[in] isForwardStrand True if the local read is 1st in read pair (this value is used in stranded
-  /// RNA mode)
   void reset(
       const SimpleAlignment& localAlignment,
       const SimpleAlignment& remoteAlignment,
-      const bool             isRemoteAlignmentInferred,
-      const bool             isForwardStrand)
+      const bool             isRemoteAlignmentInferred)
   {
     _localAlignment            = &localAlignment;
     _remoteAlignment           = &remoteAlignment;
     _isRemoteAlignmentInferred = isRemoteAlignmentInferred;
-    _isForwardStrand           = isForwardStrand;
     _isBreakendRegionScaleSet  = false;
     _breakendRegionScale       = 0;
     _totalNonInsertSize        = 0;
@@ -627,14 +610,6 @@ struct AlignmentPairAnalyzer {
     SVBreakend& remoteBreakend(sv.bp2);
 
     localBreakend.lowresEvidence.add(svLocalPair);
-
-    if (_dopt.isTranscriptStrandKnown) {
-      if (_isForwardStrand) {
-        sv.forwardTranscriptStrandReadCount++;
-      } else {
-        sv.reverseTranscriptStrandReadCount++;
-      }
-    }
 
     if (!_isRemoteAlignmentInferred) {
       remoteBreakend.lowresEvidence.add(svLocalPair);
@@ -836,9 +811,6 @@ private:
   /// record
   bool _isRemoteAlignmentInferred = true;
 
-  /// \brief True if the local read is 1st in read pair (this value is used in stranded RNA mode)
-  bool _isForwardStrand = false;
-
   /// \brief True if _breakendRegionScale is initialized
   bool _isBreakendRegionScaleSet = false;
 
@@ -893,7 +865,7 @@ static void getSVCandidatesFromPair(
   // If either read is unmapped, an anomalous fragment size cannot be inferred.
   if (localRead.is_unmapped() || localRead.is_mate_unmapped()) return;
 
-  // Special case typically used for RNA-Seq analysis:
+  // Optionally trust the proper pair bit of the aligner over the fragment size:
   if (opt.isIgnoreAnomProperPair && localRead.is_proper_pair()) return;
 
   // All information about the remote alignment is consolidated to one object. If the remote alignment record
@@ -903,7 +875,7 @@ static void getSVCandidatesFromPair(
       isRemoteReadAvailable ? getAlignment(*remoteReadPtr) : getKnownOrFakedMateAlignment(localRead));
 
   AlignmentPairAnalyzer pairInspector(opt, dopt, rstats, bamHeader);
-  pairInspector.reset(localAlign, remoteAlign, (!isRemoteReadAvailable), localRead.is_first());
+  pairInspector.reset(localAlign, remoteAlign, (!isRemoteReadAvailable));
 
   if (!pairInspector.isAnomalousReadPair()) return;
 
@@ -1276,9 +1248,8 @@ static void getSizeQuantileRange(
 SVLocusScanner::SVLocusScanner(
     const ReadScannerOptions& opt,
     const std::string&        statsFilename,
-    const std::vector<std::string>& /*alignmentFilename*/,
-    const bool isTranscriptStrandKnown)
-  : _opt(opt), _dopt(opt, isTranscriptStrandKnown)
+    const std::vector<std::string>& /*alignmentFilename*/)
+  : _opt(opt), _dopt(opt)
 {
   using namespace illumina::common;
 

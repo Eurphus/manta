@@ -62,8 +62,9 @@ def main() :
         sys.exit(2)
 
     cmd  = "\"%s\"" % (configScript)
-    cmd += " --normalBam=\"%s\"" % (os.path.join(dataDir,"HCC1954.NORMAL.30x.compare.COST16011_region.bam"))
-    cmd += " --tumorBam=\"%s\"" % (os.path.join(dataDir,"G15512.HCC1954.1.COST16011_region.bam"))
+    # the two alignment files are analyzed as two samples in a joint germline analysis:
+    cmd += " --bam=\"%s\"" % (os.path.join(dataDir,"HCC1954.NORMAL.30x.compare.COST16011_region.bam"))
+    cmd += " --bam=\"%s\"" % (os.path.join(dataDir,"G15512.HCC1954.1.COST16011_region.bam"))
     cmd += " --referenceFasta=\"%s\"" % (os.path.join(dataDir,"Homo_sapiens_assembly19.COST16011_region.fa"))
     cmd += " --region=8:107652000-107655000"
     cmd += " --region=11:94974000-94989000"

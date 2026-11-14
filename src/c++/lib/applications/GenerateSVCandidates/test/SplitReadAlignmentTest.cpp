@@ -255,129 +255,6 @@ BOOST_AUTO_TEST_CASE(test_getLnLhood)
       getLnLhood(querySeq2, qscoreSnp, qual.get(), targetSeq, 9, range, false, 0.f), lnlhood2, eps);
 }
 
-// Test the alignment information
-// Given a reference contig and a bam record, this test should check the
-// alignment information with respect to reference.
-// Also this test verifies the result of likelyhood which is mentioned in
-// the test_getLnLhood.
-BOOST_AUTO_TEST_CASE(test_getRefAlignment)
-{
-  reference_contig_segment refSeq;
-  refSeq.seq() =
-      "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGT"
-      "ATTTTCGTCTGGGGGGTGTGCACGCGATAGCATTGCGAGACGCTGGA";
-  bam_record bamRecord1;
-  buildTestBamRecord(bamRecord1, 0, 9, 0, 100, 35, 15, "35M", "TCTATCACCCATCGTACCACTCACGGGAGCTCTCC", 200);
-
-  // alignment information will be calculated using the following range
-  //                                | <-range1->|
-  //                                |  [18,24)  |
-  // Alignment->    --------------------------------------------->
-  //                | left size(10) |hom size(5)| right size(20) |
-  known_pos_range2   range1(18, 24);
-  CallOptionsShared  optionsShared;
-  qscore_snp         qscoreSnp(optionsShared.snpPrior);  // snp prior probability
-  SRAlignmentInfo    srAlignmentInfo1;
-  static const float lnOneThird(std::log(1 / 3.f));
-
-  float lnlhood1(0);
-  for (unsigned i(0); i < 35; i++) {
-    // 1st 10 bases and last 20 bases are match
-    if (i < 10 || i > 14)
-      lnlhood1 += qscoreSnp.qphred_to_ln_comp_error_prob(30);
-    else  // base-10 to base-14, total 5 mismatch bases
-      lnlhood1 += qscoreSnp.qphred_to_ln_error_prob(30) + lnOneThird;
-  }
-
-  static const float eps = 0.00000001f;
-  getRefAlignment(bamRecord1, refSeq, range1, qscoreSnp, srAlignmentInfo1);
-
-  // Based on above schematic diagram and value of range1, following values
-  // are expected.
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.leftSize, 10);
-  // There is no mismatches in left side
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.leftMismatches, 0);
-  // size of the right side is 20
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.rightSize, 20);
-  // There is no mismatches in right side
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.rightMismatches, 0);
-  // Hom size is 5
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.homSize, 5);
-  // There are 5 mismatches in hom size
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo1.homMismatches, 5);
-  BOOST_REQUIRE_CLOSE(srAlignmentInfo1.alignLnLhood, lnlhood1, eps);
-
-  // alignment information will be calculated using the following range
-  //                                | <-range1->|
-  //                                |  [19,24)  |
-  // Alignment->    --------------------------------------------->
-  //                | left size(11) |hom size(4)| right size(20) |
-  known_pos_range2 range2(19, 24);
-  SRAlignmentInfo  srAlignmentInfo2;
-  getRefAlignment(bamRecord1, refSeq, range2, qscoreSnp, srAlignmentInfo2);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.leftSize, 11);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.leftMismatches, 1);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.rightSize, 20);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.rightMismatches, 0);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.homSize, 4);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo2.homMismatches, 4);
-  BOOST_REQUIRE_CLOSE(srAlignmentInfo2.alignLnLhood, lnlhood1, eps);
-
-  // alignment information will be calculated using the following range
-  //                                | <-range1->|
-  //                                |  [19,23)  |
-  // Alignment->    --------------------------------------------->
-  //                | left size(11) |hom size(3)| right size(21) |
-  //
-  // alignLnLhood remains unchanged as it is calculated on whole read, but
-  // here only homology range is changing. So all the sizes will have
-  // effect.
-  known_pos_range2 range3(19, 23);
-  SRAlignmentInfo  srAlignmentInfo3;
-  getRefAlignment(bamRecord1, refSeq, range3, qscoreSnp, srAlignmentInfo3);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.leftSize, 11);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.leftMismatches, 1);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.rightSize, 21);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.rightMismatches, 1);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.homSize, 3);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo3.homMismatches, 3);
-  BOOST_REQUIRE_CLOSE(srAlignmentInfo3.alignLnLhood, lnlhood1, eps);
-
-  // Alignment of following query sequence starts at position 9 (0-based)
-  // with 10 matches followed by 5 mismatches followed by 1 mismatch with N then
-  // followed by 19 matches followed by 5 insertion.
-  bam_record bamRecord2;
-  buildTestBamRecord(
-      bamRecord2, 0, 9, 0, 100, 40, 15, "35M5I", "TCTATCACCCATCGTNCCACTCACGGGAGCTCTCCAGCTA", 200);
-  float lnlhood2(0);
-  float lnRandomBase(-std::log(4.f));
-  for (unsigned i(0); i < 35; i++) {
-    // 1st 10 bases and last 19 bases are match
-    if (i < 10 || i > 15)
-      lnlhood2 += qscoreSnp.qphred_to_ln_comp_error_prob(30);
-    else if (i == 15)  // base-15 is N
-      lnlhood2 += lnRandomBase;
-    else  // base-10 to base-14, total 5 mismatch bases
-      lnlhood2 += qscoreSnp.qphred_to_ln_error_prob(30) + lnOneThird;
-  }
-
-  known_pos_range2 range4(18, 24);
-  SRAlignmentInfo  srAlignmentInfo4;
-  getRefAlignment(bamRecord2, refSeq, range4, qscoreSnp, srAlignmentInfo4);
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.leftSize, 10);
-  // There is no mismatches in left side
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.leftMismatches, 0);
-  // size of the right side is 20
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.rightSize, 20);
-  // There is 1 mismatche(base N in the read) in right side
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.rightMismatches, 1);
-  // Hom size is 5
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.homSize, 5);
-  // There are 5 mismatches in hom size
-  BOOST_REQUIRE_EQUAL(srAlignmentInfo4.homMismatches, 5);
-  BOOST_REQUIRE_CLOSE(srAlignmentInfo4.alignLnLhood, lnlhood2, eps);
-}
-
 // Test the exceptions
 // Following points need to be tested:
 // 1. Query sequence size should not be equal or more than target sequence size
@@ -414,8 +291,7 @@ BOOST_AUTO_TEST_CASE(test_Exception)
       splitReadAligner(2, querySeq1, qscoreSnp, qual.get(), targetSeq2, range2, alignmentInfo2),
       illumina::common::GeneralException);
 
-  // all good means case-1 and case-2 are satisfied. All the metrics are calculated
-  // as described in test_getRefAlignment
+  // all good means case-1 and case-2 are satisfied.
   known_pos_range2 range3(8, 50);
   splitReadAligner(2, querySeq1, qscoreSnp, qual.get(), targetSeq2, range3, alignmentInfo2);
   BOOST_REQUIRE_EQUAL(alignmentInfo2.leftSize, 0);

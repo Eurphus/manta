@@ -49,17 +49,14 @@
 ///
 /// Depth Tracking and High-Depth Filtration:
 ///
-/// This object tracks the estimated depth per position summed over all non-tumor samples in
+/// This object tracks the estimated depth per position summed over all samples in
 /// the input. This depth estimate is compared to a precomputed expected depth for the chromosome/contig
 /// currently being analyzed. At positions where the local read depth is substantially higher than the
 /// expected chromosome depth, SV evidence reads are not merged into the SV graph.
 ///
 /// The motivation for skipping high depth regions is that (in an unbiased/non-targeted sequencing assay)
 /// high-depth regions indicated reference compressions and other artifacts which typically produce many
-/// artifactual SV calls, skipping these regions is an optimization of both FP rate and runtime. Tumor
-/// depth is not used because very high depth in the tumor is much more likely to indicate a somatic
-/// mutation process, so at least on non-tumor sample is required to infer the location of reference
-/// compressions or similarly unreliable regions.
+/// artifactual SV calls, skipping these regions is an optimization of both FP rate and runtime.
 ///
 struct SVLocusSetFinder : private boost::noncopyable {
   /// This constructs to an immediately usable state following an RAII-like pattern.
@@ -110,12 +107,6 @@ private:
 
   /////////////////////////////////////////////////
   // data:
-
-  /// Maps the Read Group/Sample Index to a bit indicating whether the index comes from a tumor sample.
-  ///
-  /// This is required for high-depth filtration because high-depth can only be determined from non-tumor
-  /// samples.
-  const std::vector<bool> _isAlignmentTumor;
 
   /// The target genome region for this SV locus graph building process
   const GenomeInterval _scanRegion;

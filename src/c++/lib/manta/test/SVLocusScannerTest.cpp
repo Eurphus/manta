@@ -328,21 +328,20 @@ BOOST_AUTO_TEST_CASE(test_SemiAlignedReads)
   sameStrandRead.toggle_is_mate_fwd_strand();
   BOOST_REQUIRE(scanner->isSemiAlignedEvidence(sameStrandRead, semiAlignment, ref));
 
-  // No overlap unless in RNA mode
+  // No overlap unless overlapping read pairs are used as evidence
   bam_record overlappingRead;
   buildTestBamRecord(overlappingRead, 0, alignPos, 0, alignPos + 20, 50, 15, "50M", semiQuerySeq);
   BOOST_REQUIRE(!scanner->isSemiAlignedEvidence(overlappingRead, semiAlignment, ref));
 
-  // Make scanner in RNA mode.
-  std::unique_ptr<SVLocusScanner> rnaScanner(buildTestSVLocusScanner(bamHeader, true, 100));
-  BOOST_REQUIRE(rnaScanner->isSemiAlignedEvidence(overlappingRead, semiAlignment, ref));
+  // Make scanner which uses overlapping read pairs.
+  std::unique_ptr<SVLocusScanner> overlapScanner(buildTestSVLocusScanner(bamHeader, true, 100));
+  BOOST_REQUIRE(overlapScanner->isSemiAlignedEvidence(overlappingRead, semiAlignment, ref));
 }
 
 BOOST_AUTO_TEST_CASE(test_getSVCandidatesFromReadIndels)
 {
-  const bool                    isStranded(true);
   const ReadScannerOptions      opt;
-  const ReadScannerDerivOptions dopt(opt, isStranded);
+  const ReadScannerDerivOptions dopt(opt);
 
   ALIGNPATH::path_t inputPath;
   cigar_to_apath("100M2000D100M", inputPath);

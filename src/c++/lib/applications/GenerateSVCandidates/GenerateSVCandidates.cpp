@@ -92,7 +92,7 @@ static void multiJunctionFilterGroupCandidateSV(
   unsigned mjComplexCount(0);
   unsigned mjSpanningFilterCount(0);
   findMultiJunctionCandidates(
-      svs, opt.minCandidateSpanningCount, opt.isRNA, mjComplexCount, mjSpanningFilterCount, mjSVs);
+      svs, opt.minCandidateSpanningCount, mjComplexCount, mjSpanningFilterCount, mjSVs);
   edgeStatMan.updateMJFilter(edge, mjComplexCount, mjSpanningFilterCount);
 
   if (opt.isVerbose) {
@@ -209,8 +209,7 @@ static void processEdge(
 
 static void runGSC(const GSCOptions& opt, const char* progName, const char* progVersion)
 {
-  const SVLocusScanner readScanner(
-      opt.scanOpt, opt.statsFilename, opt.alignFileOpt.alignmentFilenames, !opt.isUnstrandedRNA);
+  const SVLocusScanner readScanner(opt.scanOpt, opt.statsFilename, opt.alignFileOpt.alignmentFilenames);
 
   static const bool      isSkipLocusSetIndexCreation(true);
   const SVLocusSet       cset(opt.graphFilename.c_str(), isSkipLocusSetIndexCreation);

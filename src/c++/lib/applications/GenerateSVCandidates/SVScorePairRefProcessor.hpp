@@ -27,14 +27,12 @@
 
 struct SVScorePairRefProcessor : public SVScorePairProcessor {
   SVScorePairRefProcessor(
-      const std::vector<bool>& initIsAlignmentTumor,
       const SVLocusScanner&    initReadScanner,
       const PairOptions&       initPairOpt,
       const SVCandidate&       initSv,
       const bool               initIsBp1,
       SVEvidence&              initEvidence)
-    : SVScorePairProcessor(
-          initIsAlignmentTumor, initReadScanner, initPairOpt, initSv, initIsBp1, initEvidence)
+    : SVScorePairProcessor(initReadScanner, initPairOpt, initSv, initIsBp1, initEvidence)
   {
   }
 

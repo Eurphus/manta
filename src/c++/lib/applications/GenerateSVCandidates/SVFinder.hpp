@@ -130,16 +130,13 @@ private:
   const ChromDepthFilterUtil& dFilter() const { return *(_dFilterPtr); }
 
   const ReadScannerOptions              _scanOpt;
-  const std::vector<bool>               _isAlignmentTumor;
   std::unique_ptr<ChromDepthFilterUtil> _dFilterPtr;
   const SVLocusScanner&                 _readScanner;
 
   const std::string _referenceFilename;
 
   const bool _skipEvidenceSignalFilter;
-  const bool _isRNA;
   const bool _isVerbose;
-  bool       _isSomatic;
 
   typedef std::shared_ptr<bam_streamer> streamPtr;
   std::vector<streamPtr>                _bamStreams;

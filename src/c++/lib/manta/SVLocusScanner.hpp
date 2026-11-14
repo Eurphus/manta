@@ -77,20 +77,16 @@ struct SVObservationWeights {
 };
 
 struct ReadScannerDerivOptions {
-  ReadScannerDerivOptions(const ReadScannerOptions& opt, const bool initIsTranscriptStrandKnown)
+  explicit ReadScannerDerivOptions(const ReadScannerOptions& opt)
     : isSmallCandidates(opt.minCandidateVariantSize <= opt.maxCandidateSizeForLocalAssmEvidence),
       beforeBreakend(opt.minPairBreakendSize / 2),
-      afterBreakend(opt.minPairBreakendSize - beforeBreakend),
-      isTranscriptStrandKnown(initIsTranscriptStrandKnown)
+      afterBreakend(opt.minPairBreakendSize - beforeBreakend)
   {
   }
 
   const bool  isSmallCandidates;
   const pos_t beforeBreakend;
   const pos_t afterBreakend;
-
-  /// \brief True if running in RNA-Seq mode with a stranded input RNA assay
-  const bool isTranscriptStrandKnown;
 };
 
 /// \brief Consolidate functions which test aligned reads for SV evidence
@@ -104,8 +100,7 @@ struct SVLocusScanner {
   SVLocusScanner(
       const ReadScannerOptions&       opt,
       const std::string&              statsFilename,
-      const std::vector<std::string>& alignmentFilename,
-      const bool                      isTranscriptStrandKnown = false);
+      const std::vector<std::string>& alignmentFilename);
 
   /// QC check if the read length implied by cigar string matches the length of read sequence
   ///

@@ -23,11 +23,11 @@
 
 #include "manta/JunctionIdGenerator.hpp"
 
-void JunctionIdGenerator::getId(const EdgeInfo& edge, const SVCandidate& sv, const bool isRNA, SVId& svId)
+void JunctionIdGenerator::getId(const EdgeInfo& edge, const SVCandidate& sv, SVId& svId)
 {
   using namespace EXTENDED_SV_TYPE;
 
-  svId.svType = (getExtendedSVType(sv, isRNA));
+  svId.svType = (getExtendedSVType(sv));
 
   svId.localId =
       str(_SVIdFormatter % label(svId.svType) % edge.locusIndex % edge.nodeIndex1 % edge.nodeIndex2 %

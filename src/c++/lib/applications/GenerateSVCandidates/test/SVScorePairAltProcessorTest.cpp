@@ -62,9 +62,8 @@ BOOST_AUTO_TEST_CASE(test_getChromName)
 BOOST_AUTO_TEST_CASE(test_isSkipRecord)
 {
   const bam_header_info           bamHeader(buildTestBamHeader());
-  const std::vector<bool>         tumorNormalInfo = {false};
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options1(false);
+  const PairOptions               options1;
   SVCandidate                     candidate;
   // The test cases below are for large insertions, which has insert
   // sequence size larger than or equal to 100.
@@ -105,7 +104,6 @@ BOOST_AUTO_TEST_CASE(test_isSkipRecord)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -135,7 +133,6 @@ BOOST_AUTO_TEST_CASE(test_isSkipRecord)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -174,9 +171,8 @@ BOOST_AUTO_TEST_CASE(test_isSkipRecord)
 BOOST_AUTO_TEST_CASE(test_processClearedRecord)
 {
   const bam_header_info           bamHeader(buildTestBamHeader());
-  const std::vector<bool>         tumorNormalInfo = {false};
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options1(false);
+  const PairOptions               options1;
   SVCandidate                     candidate1;
   // large insertion (size = 102 > 100)
   candidate1.insertSeq =
@@ -219,7 +215,6 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData1,
@@ -311,7 +306,6 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData2,
@@ -376,7 +370,6 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData2,
@@ -420,9 +413,8 @@ BOOST_AUTO_TEST_CASE(test_processClearedRecord)
 BOOST_AUTO_TEST_CASE(test_alignShadowRead)
 {
   const bam_header_info           bamHeader(buildTestBamHeader());
-  const std::vector<bool>         tumorNormalInfo = {false};
   std::unique_ptr<SVLocusScanner> scanner(buildTestSVLocusScanner(bamHeader));
-  const PairOptions               options1(false);
+  const PairOptions               options1;
   SVCandidate                     candidate;
   candidate.insertSeq          = "GATCACAGGTCTATCACCCTATTAACCACTC";
   candidate.bp1.interval.range = known_pos_range2(40, 41);
@@ -462,7 +454,6 @@ BOOST_AUTO_TEST_CASE(test_alignShadowRead)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -500,7 +491,6 @@ BOOST_AUTO_TEST_CASE(test_alignShadowRead)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -528,7 +518,6 @@ BOOST_AUTO_TEST_CASE(test_alignShadowRead)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -598,7 +587,6 @@ BOOST_AUTO_TEST_CASE(test_alignShadowRead)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
@@ -648,7 +636,6 @@ BOOST_AUTO_TEST_CASE(test_alignShadowRead)
       bamHeader,
       scannerOptions,
       refinerOptions,
-      tumorNormalInfo,
       scanner.operator*(),
       options1,
       candidateAssemblyData,
