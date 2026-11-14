@@ -205,13 +205,14 @@ def checkTabixIndexedFile(iname,label) :
     assert(iname is not None)
     if not os.path.isfile(iname) :
         raise OptParseException("Can't find expected %s file: '%s'" % (label,iname))
-    tabixIndexFile = iname + ".tbi"
-    if not os.path.isfile(tabixIndexFile) :
-        raise OptParseException("Can't find expected %s index file: '%s'" % (label,tabixIndexFile))
+    # htslib reads either index format, a csi index is required for contigs longer than 2^29 bases
+    tabixIndexFiles = [ iname + ext for ext in (".tbi", ".csi") ]
+    if not any(os.path.isfile(indexFile) for indexFile in tabixIndexFiles) :
+        raise OptParseException("Can't find expected %s index file: '%s' or '%s'" % (label,tabixIndexFiles[0],tabixIndexFiles[1]))
 
 def checkOptionalTabixIndexedFile(iname,label) :
     """
-    if iname is not none, then we expect an tabix tbi file to accompany it, raise an exception otherwise
+    if iname is not none, then we expect a tabix index file (tbi or csi) to accompany it, raise an exception otherwise
     """
     if iname is None : return
     checkTabixIndexedFile(iname,label)
