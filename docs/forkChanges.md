@@ -85,8 +85,8 @@ candidate data, the second (lower) mapping quality tier of evidence counting, an
   a current zlib.
 * CMake 3.5 or later is required. The build is tested with GCC 13 and CMake 3.28 on Ubuntu 24.04.
 * The workflow version is found from `git describe`, also when building from a git worktree. Output from this
-  fork reports a version such as `1.6.0-25-g<hash>` in VCF headers, which is how to tell it from Illumina's
-  1.6.0.
+  fork reports a version of the form `1.6.0-<n>-g<hash>` in VCF headers (n is the number of commits since the
+  v1.6.0 tag), which is how to tell it from Illumina's 1.6.0.
 
 ## Method changes
 
