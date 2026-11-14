@@ -55,7 +55,13 @@ void VcfWriterDiploidSV::addHeaderFilters(std::ostream& os) const
   os << "##FILTER=<ID=" << _diploidOpt.minAltFilterLabel << ",Description=\"QUAL score is less than "
      << _diploidOpt.minPassAltScore << "\">\n";
   os << "##FILTER=<ID=" << _diploidOpt.failedSampleFTLabel
-     << ",Description=\"No sample passes all the sample-level filters (at the field FORMAT/FT)\">\n";
+     << ",Description=\"No sample passes all the sample-level filters (at the field FORMAT/FT)";
+  if (!_diploidOpt.isFilterUncertainZygosity) {
+    os << ". A sample failing only " << _diploidOpt.minGTFilterLabel
+       << " counts as passing here if its genotype is non-reference and the phred-scaled probability of the reference genotype is at least "
+       << _diploidOpt.minPassGTScore << " (the zygosity is uncertain but the variant is not)";
+  }
+  os << "\">\n";
   os << "##FILTER=<ID=" << _diploidOpt.minGTFilterLabel << ",Description=\"GQ score is less than "
      << _diploidOpt.minPassGTScore << " (filter applied at sample level)\">\n";
   os << "##FILTER=<ID=" << _diploidOpt.homRefLabel

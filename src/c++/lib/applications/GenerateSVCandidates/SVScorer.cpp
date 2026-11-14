@@ -843,6 +843,22 @@ static bool getRefAltFromFrag(
   return (isFragEvaluated || isRead1Evaluated || isRead2Evaluated);
 }
 
+/// \return true if the sample has a confident non-reference genotype with uncertain zygosity
+///
+/// This is the case for a sample which fails the minimum genotype quality filter and no other sample filter,
+/// while the probability of the homozygous reference genotype is as low as the genotype quality filter would
+/// require of the probability of all genotypes other than the called one.
+static bool isConfidentNonRefSample(
+    const CallOptionsDiploid& diploidOpt, const SVScoreInfoDiploidSample& diploidSampleInfo)
+{
+  if (diploidSampleInfo.gt == DIPLOID_GT::REF) return false;
+  if (diploidSampleInfo.filters.size() != 1) return false;
+  if (diploidSampleInfo.filters.count(diploidOpt.minGTFilterLabel) != 1) return false;
+
+  const int nonRefScore(error_prob_to_qphred(diploidSampleInfo.pprob[DIPLOID_GT::REF]));
+  return (nonRefScore >= static_cast<int>(diploidOpt.minPassGTScore));
+}
+
 /// score diploid germline specific components:
 static void addDiploidLoglhood(
     const float                           spanningPairWeight,
@@ -1003,7 +1019,13 @@ static void scoreDiploidSV(
       if (diploidSampleInfo.gtScore < diploidOpt.minPassGTScore)
         diploidSampleInfo.filters.insert(diploidOpt.minGTFilterLabel);
 
-      if (diploidSampleInfo.filters.empty()) isAllSampleFiltered = false;
+      if (diploidSampleInfo.filters.empty()) {
+        isAllSampleFiltered = false;
+      } else if ((!diploidOpt.isFilterUncertainZygosity) && isConfidentNonRefSample(diploidOpt, diploidSampleInfo)) {
+        // The sample keeps its genotype quality filter, but the variant is not filtered at the record level
+        // because of it: the uncertainty is in the number of copies of the variant, not in its presence.
+        isAllSampleFiltered = false;
+      }
     }
 
     // If no sample passes all sample-specific filters, apply sample FT filter at the record level

@@ -1397,6 +1397,48 @@ BOOST_AUTO_TEST_CASE(test_addDiploidLoglhood)
   BOOST_REQUIRE_CLOSE(loglhood[2], -1.3815510773843347, eps);  // HOM
 }
 
+// Test the definition of a sample which carries a variant with uncertain zygosity
+BOOST_AUTO_TEST_CASE(test_isConfidentNonRefSample)
+{
+  CallOptionsDiploid diploidOpt;
+
+  SVScoreInfoDiploidSample sample;
+  sample.gt                    = DIPLOID_GT::HET;
+  sample.pprob[DIPLOID_GT::REF] = 1e-10;
+  sample.pprob[DIPLOID_GT::HET] = 0.6;
+  sample.pprob[DIPLOID_GT::HOM] = 0.4;
+
+  // a sample passing all filters is not a filtered sample to begin with
+  BOOST_REQUIRE(!isConfidentNonRefSample(diploidOpt, sample));
+
+  // low genotype quality from het/hom uncertainty only
+  sample.filters.insert(diploidOpt.minGTFilterLabel);
+  BOOST_REQUIRE(isConfidentNonRefSample(diploidOpt, sample));
+
+  // low genotype quality because the reference genotype is likely
+  sample.pprob[DIPLOID_GT::REF] = 0.1;
+  sample.pprob[DIPLOID_GT::HET] = 0.89;
+  sample.pprob[DIPLOID_GT::HOM] = 0.01;
+  BOOST_REQUIRE(!isConfidentNonRefSample(diploidOpt, sample));
+
+  // the reference genotype probability is tested at the genotype quality threshold (15, P = 0.0316)
+  sample.pprob[DIPLOID_GT::REF] = 0.03;
+  BOOST_REQUIRE(isConfidentNonRefSample(diploidOpt, sample));
+  sample.pprob[DIPLOID_GT::REF] = 0.04;
+  BOOST_REQUIRE(!isConfidentNonRefSample(diploidOpt, sample));
+
+  // any other sample filter still applies
+  sample.pprob[DIPLOID_GT::REF] = 1e-10;
+  sample.filters.insert("OtherFilter");
+  BOOST_REQUIRE(!isConfidentNonRefSample(diploidOpt, sample));
+
+  // a homozygous reference sample is never a confident non-reference sample
+  sample.filters.clear();
+  sample.filters.insert(diploidOpt.minGTFilterLabel);
+  sample.gt = DIPLOID_GT::REF;
+  BOOST_REQUIRE(!isConfidentNonRefSample(diploidOpt, sample));
+}
+
 // Test the following cases:
 // 1. when quality of a diploid variant is less than minimum QUAL score (20). Add minAltFilterLabel.
 // 2. If no sample passes all sample-specific filters, apply sample FT filter at the record level.

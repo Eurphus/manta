@@ -33,6 +33,8 @@ boost::program_options::options_description getOptionsDescription(CallOptionsDip
    "minimum QUAL score for variants to PASS in germline output vcf")
   ("min-pass-gt-score", po::value(&opt.minPassGTScore)->default_value(opt.minPassGTScore),
    "minimum genotype quality score below which samples are filtered for a variant in the germline output vcf")
+  ("filter-uncertain-zygosity", po::value(&opt.isFilterUncertainZygosity)->zero_tokens(),
+   "Apply the record level sample filter to a variant if its only non-reference samples have low genotype quality, even if the low quality is due to uncertain zygosity and not to an uncertain presence of the variant (v1.6.0 behavior)")
   ;
   // clang-format on
 

@@ -52,6 +52,19 @@ struct CallOptionsDiploid {
 
   /// the SAMPLE filter for home-ref calls
   std::string homRefLabel = "HomRef";
+
+  /// If false, a variant is not filtered at the record level when its only confident sample fails the minimum
+  /// genotype quality filter because the sample's zygosity is uncertain.
+  ///
+  /// The genotype quality is low whenever two genotypes are similarly likely. If those two genotypes are
+  /// heterozygous and homozygous, there is no doubt that the sample carries the variant. Such a sample is
+  /// still marked with the genotype quality filter at the sample level, but it is sufficient to keep the
+  /// record level sample filter from being applied, if the probability of the reference genotype is low
+  /// enough to pass the genotype quality threshold.
+  ///
+  /// If true, any sample failing the minimum genotype quality filter counts as a failed sample (v1.6.0
+  /// behavior).
+  bool isFilterUncertainZygosity = false;
 };
 
 boost::program_options::options_description getOptionsDescription(CallOptionsDiploid& opt);
