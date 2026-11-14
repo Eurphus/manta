@@ -56,4 +56,23 @@ struct IterativeAssemblerOptions {
 
   /// Max. number of assembly returned for a given set of reads
   unsigned maxAssemblyCount = 10;
+
+  /// If true, the conservative sub-range of each returned contig is recomputed after assembly by
+  /// placing the input reads back onto the finished contig while tolerating a low mismatch rate.
+  ///
+  /// During contig extension the conservative range is ended by the first k-mer which is observed in
+  /// fewer than minConservativeCoverage reads, and it is never re-opened. Because k-mers have to match
+  /// exactly, a single basecall error in one of a small number of reads is enough to do this, which
+  /// regularly excludes most of a contig, including sequence which every read agrees on.
+  bool isRefineConservativeRange = true;
+
+  /// Length of the exact match used to seed the placement of a read on a contig
+  unsigned refineSeedLength = 20;
+
+  /// Minimum overlap between a read and a contig for the read to count towards contig coverage
+  unsigned refineMinOverlap = 40;
+
+  /// Maximum fraction of mismatching bases in the overlap of a read and a contig for the read to count
+  /// towards contig coverage
+  double refineMaxMismatchFrac = 0.04;
 };

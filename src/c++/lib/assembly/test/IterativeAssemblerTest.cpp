@@ -204,4 +204,75 @@ BOOST_AUTO_TEST_CASE(test_branching_iterative)
   BOOST_REQUIRE_EQUAL(readInfo[2].contigIds[0], 1u);
 }
 
+BOOST_AUTO_TEST_CASE(test_RefineConservativeRange)
+{
+  IterativeAssemblerOptions assembleOpt;
+  assembleOpt.refineSeedLength        = 8;
+  assembleOpt.refineMinOverlap        = 20;
+  assembleOpt.refineMaxMismatchFrac   = 0.04;
+  assembleOpt.minConservativeCoverage = 2;
+
+  const std::string contigSeq("TTTCCTCATGCAATTCAAAACCATGTCCGTAATGTAGGCGAAATAGTAAACCATTTTACG");
+  BOOST_REQUIRE_EQUAL(contigSeq.size(), 60u);
+
+  AssemblyReadInput reads;
+  reads.push_back(contigSeq.substr(0, 45));
+  reads.push_back(contigSeq.substr(10, 50));
+
+  // a third read covering [5,50) with a single basecall error
+  {
+    std::string read(contigSeq.substr(5, 45));
+    read[20] = ((read[20] == 'A') ? 'C' : 'A');
+    reads.push_back(read);
+  }
+
+  // a read which shares a seed with the contig but otherwise disagrees with it must not count
+  {
+    std::string read(contigSeq.substr(0, 45));
+    for (unsigned i(12); i < 45; i += 3) read[i] = ((read[i] == 'G') ? 'T' : 'G');
+    reads.push_back(read);
+  }
+
+  // an unrelated read
+  reads.emplace_back("TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT");
+
+  {
+    // without the read carrying one error, only [10,45) is covered by two reads
+    AssembledContig contig;
+    contig.seq = contigSeq;
+    refineContigConservativeRange(assembleOpt, reads, 2, contig);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.begin_pos(), 10);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.end_pos(), 45);
+  }
+
+  {
+    // the read with a single error extends two-read coverage to [5,50), the remaining reads change nothing
+    AssembledContig contig;
+    contig.seq = contigSeq;
+    refineContigConservativeRange(assembleOpt, reads, reads.size(), contig);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.begin_pos(), 5);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.end_pos(), 50);
+  }
+
+  {
+    // a range found during contig extension is extended, but never reduced
+    AssembledContig contig;
+    contig.seq = contigSeq;
+    contig.conservativeRange.set_range(0, 20);
+    refineContigConservativeRange(assembleOpt, reads, reads.size(), contig);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.begin_pos(), 0);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.end_pos(), 50);
+  }
+
+  {
+    // no change when fewer than two reads can be placed
+    AssembledContig contig;
+    contig.seq = contigSeq;
+    contig.conservativeRange.set_range(7, 9);
+    refineContigConservativeRange(assembleOpt, reads, 1, contig);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.begin_pos(), 7);
+    BOOST_REQUIRE_EQUAL(contig.conservativeRange.end_pos(), 9);
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

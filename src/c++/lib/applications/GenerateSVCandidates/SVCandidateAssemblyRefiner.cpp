@@ -363,7 +363,7 @@ static bool isLowQualitySmallSVAlignment(
 
   if (clippedPathSize < minAlignReadLength) {
 #ifdef DEBUG_REFINER
-    log_os << "Rejecting highest scoring contig sub-alignment. isFirst?: " << isFirstRead
+    log_os << "Rejecting highest scoring contig sub-alignment. isLeadingPath?: " << isLeadingPath
            << ". Sub-alignmnet read length after clipping is: " << clippedPathSize
            << " min size is: " << minAlignReadLength << "\n";
 #endif
@@ -378,7 +378,7 @@ static bool isLowQualitySmallSVAlignment(
 
 #ifdef DEBUG_REFINER
   if (isLowQualityAlignmentScore) {
-    log_os << "Rejecting highest scoring contig sub-alignment. isFirst?: " << isFirstRead
+    log_os << "Rejecting highest scoring contig sub-alignment. isLeadingPath?: " << isLeadingPath
            << ". Fraction of optimal alignment score is: " << scoreFrac << " minScoreFrac: " << minScoreFrac
            << "\n";
   }

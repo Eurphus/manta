@@ -45,3 +45,18 @@ void runIterativeAssembler(
     AssemblyReadInput&               reads,
     AssemblyReadOutput&              assembledReadInfo,
     Assembly&                        contigs);
+
+/// \brief Recompute the conservative sub-range of a finished contig from the reads it was assembled from
+///
+/// Each of the first \p readCount entries of \p reads is placed on the contig without gaps. Reads which
+/// overlap the contig by at least opt.refineMinOverlap bases at no more than opt.refineMaxMismatchFrac
+/// mismatches contribute to coverage, and the conservative range is extended to span from the first to the
+/// last contig position reaching opt.minConservativeCoverage.
+///
+/// The range found during contig extension is never reduced by this function.
+///
+void refineContigConservativeRange(
+    const IterativeAssemblerOptions& opt,
+    const AssemblyReadInput&         reads,
+    const unsigned                   readCount,
+    AssembledContig&                 contig);

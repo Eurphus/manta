@@ -26,7 +26,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <map>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -841,6 +843,118 @@ static void selectContigs(
   }
 }
 
+/// Find the ungapped placement of \p read on \p contigSeq which is supported by the largest number of exact
+/// seed matches
+///
+/// \param[in] contigSeedPos map from each seed-length word in the contig to its start positions in the contig
+///
+/// \param[out] readOffset position of the first read base in contig coordinates (can be negative)
+///
+/// \return true if a placement was found
+static bool getBestReadPlacement(
+    const std::unordered_map<std::string, std::vector<int>>& contigSeedPos,
+    const std::string&                                       read,
+    const unsigned                                           seedLength,
+    int&                                                     readOffset)
+{
+  const unsigned readSize(read.size());
+  if (readSize < seedLength) return false;
+
+  // sample seeds densely enough that at least one is free of basecall errors for any plausible read
+  const unsigned seedStep(std::max(1u, seedLength / 4));
+
+  std::map<int, unsigned> offsetVotes;
+  for (unsigned readPos(0); (readPos + seedLength) <= readSize; readPos += seedStep) {
+    const auto seedIter(contigSeedPos.find(read.substr(readPos, seedLength)));
+    if (seedIter == contigSeedPos.end()) continue;
+    for (const int contigPos : seedIter->second) {
+      offsetVotes[contigPos - static_cast<int>(readPos)]++;
+    }
+  }
+
+  unsigned maxVotes(0);
+  for (const auto& val : offsetVotes) {
+    if (val.second > maxVotes) {
+      maxVotes   = val.second;
+      readOffset = val.first;
+    }
+  }
+  return (maxVotes > 0);
+}
+
+void refineContigConservativeRange(
+    const IterativeAssemblerOptions& opt,
+    const AssemblyReadInput&         reads,
+    const unsigned                   readCount,
+    AssembledContig&                 contig)
+{
+  const std::string& contigSeq(contig.seq);
+  const int          contigSize(contigSeq.size());
+  const unsigned     seedLength(opt.refineSeedLength);
+
+  assert(readCount <= reads.size());
+  if (static_cast<unsigned>(contigSize) < seedLength) return;
+
+  std::unordered_map<std::string, std::vector<int>> contigSeedPos;
+  for (int contigPos(0); (contigPos + static_cast<int>(seedLength)) <= contigSize; ++contigPos) {
+    contigSeedPos[contigSeq.substr(contigPos, seedLength)].push_back(contigPos);
+  }
+
+  // coverage is accumulated as a difference array
+  std::vector<int> coverageDelta(contigSize + 1, 0);
+
+  for (unsigned readIndex(0); readIndex < readCount; ++readIndex) {
+    const std::string& read(reads[readIndex]);
+
+    int readOffset(0);
+    if (!getBestReadPlacement(contigSeedPos, read, seedLength, readOffset)) continue;
+
+    const int beginPos(std::max(0, readOffset));
+    const int endPos(std::min(contigSize, readOffset + static_cast<int>(read.size())));
+    if ((endPos - beginPos) < static_cast<int>(opt.refineMinOverlap)) continue;
+
+    // bases masked for low basecall quality ('N') neither support nor contradict the contig
+    unsigned comparedCount(0);
+    unsigned mismatchCount(0);
+    for (int contigPos(beginPos); contigPos < endPos; ++contigPos) {
+      const char readBase(read[contigPos - readOffset]);
+      if (readBase == 'N') continue;
+      comparedCount++;
+      if (readBase != contigSeq[contigPos]) mismatchCount++;
+    }
+    if (comparedCount < opt.refineMinOverlap) continue;
+    if (mismatchCount > (comparedCount * opt.refineMaxMismatchFrac)) continue;
+
+    coverageDelta[beginPos]++;
+    coverageDelta[endPos]--;
+  }
+
+  bool isCovered(false);
+  int  firstCoveredPos(0);
+  int  lastCoveredPos(0);
+  int  coverage(0);
+  for (int contigPos(0); contigPos < contigSize; ++contigPos) {
+    coverage += coverageDelta[contigPos];
+    if (coverage < static_cast<int>(opt.minConservativeCoverage)) continue;
+    if (!isCovered) {
+      firstCoveredPos = contigPos;
+      isCovered       = true;
+    }
+    lastCoveredPos = contigPos;
+  }
+
+  if (!isCovered) return;
+
+  // the refined range can only extend the range found during contig extension
+  known_pos_range2& range(contig.conservativeRange);
+  if (range.end_pos() > range.begin_pos()) {
+    range.set_begin_pos(std::min(range.begin_pos(), static_cast<pos_t>(firstCoveredPos)));
+    range.set_end_pos(std::max(range.end_pos(), static_cast<pos_t>(lastCoveredPos + 1)));
+  } else {
+    range.set_range(firstCoveredPos, lastCoveredPos + 1);
+  }
+}
+
 void runIterativeAssembler(
     const IterativeAssemblerOptions& opt,
     AssemblyReadInput&               reads,
@@ -915,6 +1029,14 @@ void runIterativeAssembler(
 
   // greedy selection of contigs to be returned
   selectContigs(opt, readInfo, normalReadCount, iterativeContigs, contigs);
+
+  if (opt.isRefineConservativeRange) {
+    // only the reads provided by the caller are used here, not the contigs added as pseudo-reads between
+    // word length iterations
+    for (AssembledContig& contig : contigs) {
+      refineContigConservativeRange(opt, reads, normalReadCount, contig);
+    }
+  }
 
 #ifdef DEBUG_ASBL
   log_os << logtag << "Selected " << contigs.size() << " contigs.\n";
