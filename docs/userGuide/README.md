@@ -31,7 +31,6 @@ Manta User Guide
 * [Run configuration and execution](#run-configuration-and-execution)
   * [Configuration](#configuration)
     * [Germline configuration examples](#germline-configuration-examples)
-    * [Somatic configuration examples](#somatic-configuration-examples)
     * [General configuration options](#general-configuration-options)
     * [Advanced configuration options](#advanced-configuration-options)
   * [Execution](#execution)
@@ -39,8 +38,6 @@ Manta User Guide
   * [Extended use cases](#extended-use-cases)
     * [Improving runtime for references with many short contigs, such as GRCh38](#improving-runtime-for-references-with-many-short-contigs-such-as-grch38)
     * [Exome/Targeted](#exometargeted)
-    * [Unpaired tumor sample](#unpaired-tumor-sample)
-    * [RNA-Seq](#rna-seq)
     * [High sensitivity calling](#high-sensitivity-calling)
     * [De novo calling](#de-novo-calling)
 
@@ -50,21 +47,20 @@ Manta User Guide
 ## Introduction
 
 Manta calls structural variants (SVs) and indels from mapped
-paired-end sequencing reads. It is optimized for analysis of germline
-variation in small sets of individuals and somatic variation in
-tumor/normal sample pairs. Manta discovers, assembles and scores
+paired-end sequencing reads. This fork is restricted to the analysis of
+germline variation in small sets of individuals: the somatic
+(tumor/normal), tumor-only and RNA-Seq modes of the original method
+have been removed (see [changes in this fork](../forkChanges.md)).
+Manta discovers, assembles and scores
 large-scale SVs, medium-sized indels and large insertions within a
 single efficient workflow. The method is designed for rapid analysis
 on standard compute hardware: NA12878 at 50x genomic coverage is
-analyzed in less than 20 minutes on a 20 core server, and most WGS
-tumor/normal analyses can be completed within 2 hours. Manta combines
+analyzed in less than 20 minutes on a 20 core server. Manta combines
 paired and split-read evidence during SV discovery and scoring to
 improve accuracy, but does not require split-reads or successful
 breakpoint assemblies to report a variant in cases where there is
-strong evidence otherwise. It provides scoring models for germline
-variants in small sets of diploid samples and somatic variants in
-matched tumor/normal sample pairs. There is experimental support for
-analysis of unmatched tumor samples as well (see details below). Manta
+strong evidence otherwise. It provides a scoring model for germline
+variants in small sets of diploid samples. Manta
 accepts input read mappings from BAM or CRAM files and reports all SV
 and indel inferences in VCF 4.1 format.
 
@@ -107,8 +103,8 @@ individual graph edges or groups of highly connected edges to discover
 and score SVs associated with the edge(s). The substeps of this
 process include inference of SV candidates associated with the edge,
 attempted assembly of the SVs breakends, scoring/genotyping and
-filtration of the SV under various biological models (currently
-diploid germline and somatic), and finally, output to VCF.
+filtration of the SV under a diploid germline model, and finally,
+output to VCF.
 
 
 ## Capabilities
@@ -133,26 +129,20 @@ presenting a read from the outer edge of the fragment insert inward.
 
 Manta is primarily tested for whole-genome and whole-exome (or other
 targeted enrichement) sequencing assays on DNA. For these assays the
-following applications are supported:
+following application is supported:
 
 * Joint analysis of small sets of diploid individuals (where 'small' means
 family-scale -- roughly 10 or fewer samples)
-* Subtractive analysis of a matched tumor/normal sample pair
-* Analysis of an individual tumor sample
 
-For the first use case above, note that there is no specific restriction against
+Note that there is no specific restriction against
 using Manta for the joint analysis of larger cohorts, but this has not
 been extensively tested so there may be stability or call quality
 issues.
 
-Per the final use case above, tumor samples can be analyzed without a matched normal sample. In
-this case no scoring function is available, but the supporting
-evidence counts and many filters can still be usefully applied.
-
-RNA-Seq analysis is still in development and not fully supported. It
-can be configured with the `--rna` flag. This will adjust filtration
-levels and take other RNA-specific filtration and intron handling steps
-(more details are provided further below).
+Tumor samples and RNA-Seq data are not supported by this fork. Every
+input sample is scored under the diploid germline model, so variants
+present in a small fraction of the reads (subclonal or mosaic variants)
+will usually be genotyped as homozygous reference.
 
 ### Detected variant classes
 
@@ -223,11 +213,9 @@ coordinate sorted and indexed to produce a`samtools/htslib`-style index in a
 file named to match the input BAM or CRAM file with an additional '.bai', '.crai'
 or '.csi' filename extension.
 
-At configuration time, at least one BAM or CRAM file must be provided for the
-normal or tumor sample. A matched tumor-normal sample pair can be
-provided as well. If multiple input files are provided for the normal
-sample, each file will be treated as a separate sample as part of a
-joint diploid sample analysis.
+At configuration time, at least one BAM or CRAM file must be provided.
+If multiple input files are provided, each file will be treated as a
+separate sample as part of a joint diploid sample analysis.
 
 The following limitations exist on the input BAM or CRAM files provided to
 Manta:
@@ -253,19 +241,12 @@ input fasta with an additional '.fai' file extension.
 ### Structural Variant predictions
 
 The primary Manta outputs are a set of [VCF 4.1][1] files, found in
-`${MANTA_ANALYSIS_PATH}/results/variants`. Currently there are 3 VCF
-files created for a germline analysis, and an additional somatic VCF
-is produced for a tumor/normal subtraction. These files are:
+`${MANTA_ANALYSIS_PATH}/results/variants`. There are 3 VCF
+files created for an analysis. These files are:
 
 * __diploidSV.vcf.gz__
     * SVs and indels scored and genotyped under a diploid model for the set of
-  samples in a joint diploid sample analysis or for the normal sample in a
-  tumor/normal subtraction analysis. In the case of a tumor/normal subtraction,
-  the scores in this file do not reflect any information from the tumor sample.
-* __somaticSV.vcf.gz__
-    * SVs and indels scored under a somatic variant model. This file
-  will only be produced if a tumor sample alignment file is supplied during
-  configuration
+  samples in a joint diploid sample analysis.
 * __candidateSV.vcf.gz__
     * Unscored SV and indel candidates. Only a minimal amount of supporting
   evidence is required for an SV to be entered as a candidate in this file.
@@ -282,15 +263,6 @@ is produced for a tumor/normal subtraction. These files are:
   sizes when the small variant caller and manta outputs are evaluated together. Alternate
   small indel candidate sets can be parsed out of the __candidateSV.vcf.gz file__ if this
   candidate set is not appropriate.
-
-For tumor-only analysis, Manta will produce an additional VCF:
-
-* __tumorSV.vcf.gz__
-    * Subset of the __candidateSV.vcf.gz__ file after removing redundant candidates and
-  small indels less than the minimum scored variant size (50 by default). The SVs are not
-  scored, but include additional details: (1) paired and split read supporting evidence
-  counts for each allele (2) a subset of the filters from the scored tumor-normal model
-  are applied to the single tumor case to improve precision.
 
 ### Manta VCF interpretation
 
@@ -374,9 +346,6 @@ RIGHT_SVINSSEQ | Known right side of insertion for an insertion of unknown lengt
 BND_DEPTH | Read depth at local translocation breakend
 MATE_BND_DEPTH | Read depth at remote translocation mate breakend
 JUNCTION_QUAL | If the SV junction is part of an EVENT (ie. a multi-adjacency variant), this field provides the QUAL value for the adjacency in question only
-SOMATIC | Flag indicating a somatic variant
-SOMATICSCORE | Somatic variant quality score
-JUNCTION_SOMATICSCORE | If the SV junction is part of an EVENT (ie. a multi-adjacency variant), this field provides the SOMATICSCORE value for the adjacency in question only
 CONTIG | Assembled contig sequence, if the variant is not imprecise (with `--outputContig`)
 OVERLAPPING_ALT | Flag indicating that another variant allele which overlaps this one was assembled at the same locus and is reported as a separate record. The two records are genotyped independently against the reference allele, so their genotypes are less reliable. See [changes in this fork](../forkChanges.md)
 
@@ -398,7 +367,6 @@ ID | Level | Description
 --- | --- | ---
 MinQUAL | Record | QUAL score is less than 20
 MinGQ | Sample | GQ score is less than 15
-MinSomaticScore | Record | SOMATICSCORE is less than 30
 Ploidy | Record | For DEL & DUP variants, the genotypes of overlapping variants (with similar size) are inconsistent with diploid expectation
 MaxDepth | Record | Depth is greater than 3x the median chromosome depth near one or both variant breakends
 MaxMQ0Frac | Record | For a small variant (<1000 bases), the fraction of reads in all samples with MAPQ0 around either breakend exceeds 0.4
@@ -491,7 +459,7 @@ drive, peak total memory (RSS) for this run was 2.35 Gb.
 Additional hardware notes:
 
 * **Memory** Typical memory requirements are <1Gb/core for germline
-analysis and <2Gb/core for cancer/FFPE/highly rearranged
+analysis and <2Gb/core for FFPE or highly rearranged
 samples. The exact requirement depends on many factors including
 sequencing depth, read length, fragment size and sample quality.
 
@@ -528,8 +496,8 @@ contain the same chromosome names in the same order. In addition all
 input alignment files and reference sequences must be indexed with
 `samtools` (or a utility which creates equivilent index
 files). Manta's default settings assume a whole genome DNA-Seq
-analysis, but there are configuration options for exome/targeted
-sequencing analysis in addition to RNA-Seq.
+analysis, but there is a configuration option for exome/targeted
+sequencing analysis.
 
 On completion, the configuration script will create the workflow run
 script `${MANTA_ANALYSIS_PATH}/runWorkflow.py`. This can be used to
@@ -554,27 +522,6 @@ ${MANTA_INSTALL_PATH}/bin/configManta.py \
 --bam NA12878_S1.cram \
 --bam NA12891_S1.cram \
 --bam NA12892_S1.cram \
---referenceFasta hg19.fa \
---runDir ${MANTA_ANALYSIS_PATH}
-```
-
-#### Somatic configuration examples
-
-Tumor Normal Analysis -- Example Configuration:
-
-```
-${MANTA_INSTALL_PATH}/bin/configManta.py \
---normalBam HCC1187BL.cram \
---tumorBam HCC1187C.cram \
---referenceFasta hg19.fa \
---runDir ${MANTA_ANALYSIS_PATH}
-```
-
-Tumor-Only Analysis -- Example Configuration:
-
-```
-${MANTA_INSTALL_PATH}/bin/configManta.py \
---tumorBam HCC1187C.cram \
 --referenceFasta hg19.fa \
 --runDir ${MANTA_ANALYSIS_PATH}
 ```
@@ -680,7 +627,7 @@ These options are useful for Manta development and debugging:
 
 #### Improving runtime for references with many short contigs, such as GRCh38
 
-For both germline and somatic analysis, Manta may have runtime issues while attempting to process the large number of
+Manta may have runtime issues while attempting to process the large number of
 small decoys and unplaced/unlocalized contigs found in GRCh38 and other reference genomes. Until those
 issue can be resolved, runtime can be improved for such cases by excluding  smaller contigs from analysis. This can be
 done in Manta by creating a bed file of all the chromosomes that should be included in the analysis, and providing it
@@ -725,58 +672,6 @@ WGS case but cannot be applied correctly to a targeted analysis.
 
 For small targeted regions, it may also be helpful to consider the
 high sensitivity calling documentation below.
-
-#### Unpaired tumor sample
-
-Manta supports SV calling for tumor sample only. The tumor-only mode
-can be triggered by supplying a tumor sample alignment file but no alignments for the normal sample.
-The results are reported in __tumorSV.vcf.gz__. This file contains all
-SV candidates (similar to the __candidateSV.vcf.gz__ file), but also
-includes paired and split read evidence for each allele and a
-subset of the filters used for the tumor-normal comparative analysis.
-
-Note that Manta does not yet provide a quality scoring model for unpaired tumor sample analysis. Users interested in
-selecting for higher precision subsets of the unpaired tumor calls may consider selection based on the counts of paired
-and split reads supporting each allele (`SAMPLE/PR` and `SAMPLE/SR` respectively). Note that the split read counts will
-not always be available because some calls will be imprecise, so the paired read count (`SAMPLE/PR`), could be used as a
-simple starting point for filtration, but it is more accurate to consider the split and paired read support counts
-together if a more accurate filter is required. The status of a call's `IMPRECISE` flag may also be a strong indicator
-of its reliability.
-
-For example, in the unpaired tumor analysis output below, the records could be filtered to only include those with
-`SAMPLE/PR[1] >= 15 || SAMPLE/SR[1] >= 15`. This would remove the deletion record, because the paired-read count
-for the deletion allele is 13 and the split-read count is not known. The two translocation breakends would not be
-filtered because they have 15 and 19 split-read counts, respectively, supporting the breakend allele:
-
-```
-11      94975747        MantaBND:0:2:3:0:0:0:1  G       G]8:107653520]  .       PASS    SVTYPE=BND;MATEID=MantaBND:0:2:3:0:0:0:0;CIPOS=0,2;HOMLEN=2;HOMSEQ=TT;BND_DEPTH=216;MATE_BND_DEPTH=735  PR:SR   722,9:463,15
-11      94975753        MantaDEL:0:1:2:0:0:0    T       <DEL>   .       PASS    END=94987865;SVTYPE=DEL;SVLEN=12112;IMPRECISE;CIPOS=-156,156;CIEND=-150,150        PR      161,13
-11      94987872        MantaBND:0:0:1:0:0:0:0  T       T[8:107653411[  .       PASS    SVTYPE=BND;MATEID=MantaBND:0:0:1:0:0:0:1;BND_DEPTH=171;MATE_BND_DEPTH=830       PR:SR   489,4:520,19
-```
-
-For low allele frequency variants, it may also be helpful to consider the
-high sensitivity calling documentation below.
-
-#### RNA-Seq
-
-Supplying the '--rna' flag at configuration time will provide
-experimental settings for RNA-Seq Fusion calling. At present this flag
-disables all high depth filters which are designed to exclude
-pericentromeric reference compressions in the WGS case but cannot be
-applied correctly to RNA-Seq analysis. In addition many custom RNA
-read processing and alignment steps are invoked. This mode is designed
-to function as part of larger workflow with additional steps to reduce
-overall false positive rate which take place downstream from Manta's
-fusion calling step.
-
-When RNA mode is turned on, exactly one sample must be specified as normal
-input only (using either the `--bam` or `--normalBam` option).
-
-RNA Fusions are reported in __rnaSV.vcf.gz__ in translocation format.
-Smaller variants are not reported.
-
-It may also be helpful to consider the high sensitivity calling
-documentation below for this mode.
 
 #### High sensitivity calling
 

@@ -33,11 +33,11 @@ To enable a regional build, simply specify the additional flag "--region" at con
 
 A full example of a rapid debug region run is:
 
-    ${MANTA_INSTALL_ROOT}/bin/configManta.py --normalBam myBam.bam --region chr2:19000-20000
+    ${MANTA_INSTALL_ROOT}/bin/configManta.py --bam myBam.bam --region chr2:19000-20000
 
 An example debug build for a translocation is:
 
-    ${MANTA_INSTALL_ROOT}/bin/configManta.py --normalBam myBam.bam --tumorBam myTumorBam.bam --region chr2:19000-20000 --region chr20:1000-2000
+    ${MANTA_INSTALL_ROOT}/bin/configManta.py --bam myBam.bam --region chr2:19000-20000 --region chr20:1000-2000
 
 ## Scenario 1 : Debug gold-standard SV call which is already covered by an edge in the SVLocus graph
 
@@ -115,7 +115,7 @@ option | example | description
 
 An example full command-line is:
 
-> ${MANTA_INSTALL_ROOT}/libexec/GenerateSVCandidates --align-stats /tmp/manta_test/assemble_test/testAssm3/workspace/alignmentStats.xml --graph-file /tmp/manta_test/assemble_test/testAssm3/workspace/svLocusGraph.bin --ref genome.fa --candidate-output-file /tmp/manta_test/assemble_test/testAssm3/workspace/svHyGen/candidateSV.0103.vcf --somatic-output-file /tmp/manta_test/assemble_test/testAssm3/workspace/svHyGen/somaticSV.0103.vcf --chrom-depth /tmp/manta_test/assemble_test/testAssm3/workspace/chromDepth.txt --align-file sorted.bam --tumor-align-file tsorted.bam **--locus-index 13716:0:1** **--verbose**
+> ${MANTA_INSTALL_ROOT}/libexec/GenerateSVCandidates --align-stats /tmp/manta_test/assemble_test/testAssm3/workspace/alignmentStats.xml --graph-file /tmp/manta_test/assemble_test/testAssm3/workspace/svLocusGraph.bin --ref genome.fa --candidate-output-file /tmp/manta_test/assemble_test/testAssm3/workspace/svHyGen/candidateSV.0103.vcf --diploid-output-file /tmp/manta_test/assemble_test/testAssm3/workspace/svHyGen/diploidSV.0103.vcf --chrom-depth /tmp/manta_test/assemble_test/testAssm3/workspace/chromDepth.txt --align-file sorted.bam **--locus-index 13716:0:1** **--verbose**
 
 The additional `--locus-index ARG` command is highlighted, together with the new `--verbose` option. In the example, SV generation runs for the specified edge "13716:0:1" only. This makes it easier to run modifications of the SV generator with various types of verbose debugging outputs, etc...  To get started in this direction, the example includes the --verbose option to provide some quick high level logging without recompiling – for many problems more specific/noising debug output will have to be compiled in as part of a follow-up step.
 

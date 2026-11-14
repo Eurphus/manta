@@ -149,7 +149,7 @@ above, the demo can be run as follows:
 
 This script creates a `MantaDemoAnalysis` directory under the current
 working directory, runs Manta on a small demo dataset, and compares the
-somatic structural variant output to an expected result.
+candidate and diploid structural variant output to an expected result.
 
 See [the demo README](../../src/demo/README.md) for additional information
 on the test script and data.

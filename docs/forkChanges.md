@@ -5,6 +5,10 @@ This is a modified version of Manta. It starts from commit `75b5c38` of
 which is the last revision published under the GPLv3. Nothing from later upstream revisions is included. The
 fork is distributed under the same license, see [LICENSE.txt](../LICENSE.txt).
 
+**This branch calls germline variants only.** Somatic (tumor/normal), tumor-only and RNA-Seq calling have been
+removed, see [germline only](#germline-only). The branch `gpl-main` has the same method changes with those
+modes still present.
+
 Every change to the calling methods has a switch, and the default selects the changed method. With all
 switches set to their v1.6.0 values, the candidate and diploid VCF records and headers of the benchmark below
 are identical to those of a build without any method change.
@@ -16,6 +20,7 @@ any of them.
 ## Table of Contents
 
 * [Summary](#summary)
+* [Germline only](#germline-only)
 * [Build and runtime](#build-and-runtime)
 * [Method changes](#method-changes)
 * [Failures fixed](#failures-fixed)
@@ -30,7 +35,7 @@ Change | Default | Switch (`configManta.py.ini`)
 More than one allele per small variant locus | 2 alleles | `maxLocalHaplotypeCount = 1`
 Join left and right contigs of a large insertion | on | `enableInsertionContigMerge = 0`
 Contig trimming which tolerates basecall errors | on | `enableContigConservativeRangeRefinement = 0`
-Tandem duplications scored as duplications (germline) | on | `enableTandemDupModel = 0`
+Tandem duplications scored as duplications | on | `enableTandemDupModel = 0`
 Uncertain zygosity no longer filters a variant | on | `filterUncertainZygosity = 1`
 Depth ratio for deletions and duplications (`FORMAT/RDR`) | on | `reportDepthRatio = 0`
 Near-identical duplicate records merged | 5% mismatches | `maxDuplicateAltMismatchFraction = 0`
@@ -38,6 +43,39 @@ Python 3, htslib/samtools 1.25, current CMake and compilers | | none
 Basecall qualities above 70 accepted | | none
 Reads which cannot be split-read aligned are skipped | | none
 csi index accepted for `--callRegions` | | none
+Somatic, tumor-only and RNA-Seq calling removed | | none (use branch `gpl-main`)
+
+## Germline only
+
+Every input sample is a germline sample, scored under the diploid model. What was removed:
+
+* `configManta.py` options `--tumorBam`, `--rna` and `--unstrandedRNA`. Using one of them is an error.
+  `--bam` and its synonym `--normalBam` are unchanged.
+* Outputs `somaticSV.vcf.gz`, `tumorSV.vcf.gz` and `rnaSV.vcf.gz`, and with them the INFO keys `SOMATIC`,
+  `SOMATICSCORE` and `JUNCTION_SOMATICSCORE` and the filter `MinSomaticScore`.
+* Configuration file options `minSomaticScore`, `minPassSomaticScore`, `rnaMinCandidateVariantSize` and
+  `enableRemoteReadRetrievalForInsertionsInCancerCallingModes`. A configuration file which still sets them is
+  accepted and the values are ignored without a warning.
+* The somatic and tumor-only scoring models, the RNA scoring model and the intron-aware contig aligner, the
+  transcript strand bookkeeping, and the tests of all of these. About 5500 lines in total.
+
+Germline results do not change. `diploidSV.vcf.gz`, `candidateSV.vcf.gz` and `candidateSmallIndels.vcf.gz`
+were compared before and after the removal for 14 runs, and all 42 files have identical records and headers
+(leaving out the header lines for date, command line, version and reference path). The runs are 7 inputs, each with the
+default settings and with the [v1.6.0 settings](#reproducing-v160-results): the three simulated benchmark
+samples, a joint analysis of two simulated samples (502 diploid records), and the real reads of the demo
+analyzed as one sample with `--exome`, as two samples with `--exome`, and as two samples without.
+
+Not covered by that comparison: CRAM input, `--callRegions`, more than two samples, and whole genome sized
+input.
+
+A tumor sample given to this branch as `--bam` is genotyped as a diploid germline sample. A variant in a
+small fraction of its reads is then called `0/0` and is not reported in `diploidSV.vcf.gz`.
+
+Some internals which only the removed modes needed are still present, because taking them out would change
+shared code paths for no change in output: storage for reads below the minimum mapping quality in the
+candidate data, the second (lower) mapping quality tier of evidence counting, and the read scanner option
+`--ignore-anom-proper-pair`, which nothing sets any more.
 
 ## Build and runtime
 
@@ -47,7 +85,7 @@ csi index accepted for `--callRegions` | | none
   a current zlib.
 * CMake 3.5 or later is required. The build is tested with GCC 13 and CMake 3.28 on Ubuntu 24.04.
 * The workflow version is found from `git describe`, also when building from a git worktree. Output from this
-  fork reports a version such as `1.6.0-17-g<hash>` in VCF headers, which is how to tell it from Illumina's
+  fork reports a version such as `1.6.0-25-g<hash>` in VCF headers, which is how to tell it from Illumina's
   1.6.0.
 
 ## Method changes
@@ -89,8 +127,8 @@ Two changes increase how often a large insertion is fully assembled:
 ### Tandem duplications
 
 A haplotype with a tandem duplication keeps both reference junctions next to the one new junction. v1.6.0
-scores a duplication as if the reference junctions were gone, like any other variant. In germline scoring of
-a duplication called as a single junction:
+scores a duplication as if the reference junctions were gone, like any other variant. For a duplication
+called as a single junction:
 
 * **Zygosity.** A heterozygous duplication is supported by 1 in 5 informative reads and a homozygous one by 1
   in 3, not 1 in 2 and 99 in 100. v1.6.0 cannot genotype a duplication `1/1`. The choice between `0/1` and
@@ -141,8 +179,7 @@ mappability, so it is least reliable for small variants and in repeats.
   the split read aligner. These reads are now skipped.
 * `--callRegions` required a `.tbi` index. A `.csi` index is now accepted.
 * The `enableEvidenceSignalFilter` configuration option had no effect. Setting it to 0 now turns the filter
-  off. The default is unchanged in every mode, including RNA, where the v1.6.0 configuration file wrongly
-  said the filter was forced off.
+  off. The default (on) is unchanged.
 * The serialization headers of boost 1.74 and 1.75 fail to compile unless a definition is included first. The
   include is added. **Not tested**: only the bundled boost 1.58 was available.
 
@@ -167,8 +204,11 @@ The same switches exist as `GenerateSVCandidates` options (`--help`).
 What has been checked:
 
 * All unit tests pass, including tests added for each change.
-* The bundled demo (HCC1954 tumor/normal region) reproduces its expected somatic calls with the default
-  settings. The expected result file is unchanged apart from one added header line (`OVERLAPPING_ALT`).
+* On branch `gpl-main`, the bundled demo (HCC1954 tumor/normal region) reproduces its expected somatic calls
+  with the default settings. On this branch the demo is a different test, see
+  [the demo README](../src/demo/README.md).
+* Germline output is identical before and after the removal of the other calling modes, see
+  [germline only](#germline-only).
 * With the seven switches above, benchmark output is identical to a build of the unmodified methods.
 * The branch builds from a fresh clone, and every commit which changes C++ code was built and unit tested
   on its own.
@@ -222,9 +262,9 @@ Why these figures are an upper bound and not an estimate:
   in repeats and segmental duplications.
 * The 10% artifact haplotype is an arbitrary stand-in for low level noise. It also puts reference reads at
   every homozygous variant, which inflates the benefit of the zygosity filter change.
-* Only germline calling of one sample was measured. Somatic, tumor-only, RNA and joint calling were not. The
-  tandem duplication changes are restricted to germline scoring for this reason, but the assembly changes
-  apply to every mode.
+* Accuracy was measured for one sample at a time. Joint calling of several samples was run (two simulated
+  samples, and the two demo samples) and its output is stable across the removal, but it was not compared to
+  a truth set.
 
 Before using this fork for anything that matters, run it and v1.6.0 on a sample with a truth set (for
 instance HG002 with the GIAB SV benchmark), per variant type and size, and compare with each switch.
@@ -233,7 +273,6 @@ instance HG002 with the GIAB SV benchmark), per variant type and size, and compa
 
 Planned and not done:
 
-* A quality score for tumor-only calls.
 * Mobile element annotation of insertions.
 * Mapping quality aware read likelihoods. The scoring model still uses constant mismapping probabilities.
   A related weakness: a read which matches the variant allele with two or more mismatches contributes almost
