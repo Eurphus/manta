@@ -24,6 +24,8 @@
 #include "blt_util/parse_util.hpp"
 #include "blt_util/string_util.hpp"
 
+#include "blt_util/boost_serialization_fix.hpp"
+
 // workaround intel compiler boost warnings:
 #include "boost/config.hpp"
 #ifdef BOOST_INTEL_CXX_VERSION

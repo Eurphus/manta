@@ -22,6 +22,8 @@
 #include "GenomeInterval.hpp"
 #include "blt_util/RegionTracker.hpp"
 
+#include "blt_util/boost_serialization_fix.hpp"
+
 #include "boost/serialization/vector.hpp"
 
 #include <iosfwd>

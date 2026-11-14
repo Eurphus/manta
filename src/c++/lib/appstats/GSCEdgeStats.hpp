@@ -26,6 +26,8 @@
 #include "SVFinderStats.hpp"
 #include "blt_util/time_util.hpp"
 
+#include "blt_util/boost_serialization_fix.hpp"
+
 #include "boost/serialization/nvp.hpp"
 #include "boost/serialization/vector.hpp"
 

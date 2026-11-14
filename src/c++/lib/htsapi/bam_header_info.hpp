@@ -26,6 +26,8 @@
 
 #include "blt_util/thirdparty_push.h"
 
+#include "blt_util/boost_serialization_fix.hpp"
+
 #include "boost/serialization/map.hpp"
 #include "boost/serialization/string.hpp"
 #include "boost/serialization/vector.hpp"

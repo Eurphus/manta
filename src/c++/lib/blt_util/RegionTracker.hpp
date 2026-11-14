@@ -25,6 +25,8 @@
 
 #include "blt_util/known_pos_range2.hpp"
 
+#include "blt_util/boost_serialization_fix.hpp"
+
 #include "boost/optional.hpp"
 
 // This extra boost serialization.hpp include is required before including set.hpp, due to bug observed in
