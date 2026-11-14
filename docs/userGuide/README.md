@@ -237,8 +237,10 @@ Manta:
 * Alignments cannot use the sequence match/mismatch ("="/"X") CIGAR notation
 * RG (read group) tags in the alignment records are ignored -- each file will be
 treated as representing one sample.
-* Alignments with basecall quality values greater than 70 are rejected (these
-  are not supported on the assumption that this indicates an offset error)
+* Basecall quality values greater than 70 are treated as 70. Such values are
+  produced by some read merging and consensus calling methods. Note that
+  alignments with a quality offset error are no longer rejected as a result,
+  so the quality encoding of the input should be checked separately if in doubt.
 
 Manta also requires a reference sequence in fasta format. This must be
 the same reference used for mapping the input alignment files. The reference

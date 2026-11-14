@@ -34,22 +34,22 @@
 struct qscore_snp {
   qscore_snp(const double snp_prob);
 
+  // In each function below, a basecall quality above the cached range is treated as the maximum cached value,
+  // see qphred_cache::qscore_check
+
   double qphred_to_error_prob(const int qscore) const
   {
-    qphred_cache::qscore_check(qscore, "basecall quality");
-    return _q2p[qscore];
+    return _q2p[qphred_cache::qscore_check(qscore, "basecall quality")];
   }
 
   double qphred_to_ln_comp_error_prob(const int qscore) const
   {
-    qphred_cache::qscore_check(qscore, "basecall quality");
-    return _q2lncompe[qscore];
+    return _q2lncompe[qphred_cache::qscore_check(qscore, "basecall quality")];
   }
 
   double qphred_to_ln_error_prob(const int qscore) const
   {
-    qphred_cache::qscore_check(qscore, "basecall quality");
-    return _q2lne[qscore];
+    return _q2lne[qphred_cache::qscore_check(qscore, "basecall quality")];
   }
 
 private:
