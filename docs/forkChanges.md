@@ -6,8 +6,8 @@ which is the last revision published under the GPLv3. Nothing from later upstrea
 fork is distributed under the same license, see [LICENSE.txt](../LICENSE.txt).
 
 Every change to the calling methods has a switch, and the default selects the changed method. With all
-switches set to their v1.6.0 values, the candidate and diploid VCF records of the benchmark below are
-identical to those of a build without any method change.
+switches set to their v1.6.0 values, the candidate and diploid VCF records and headers of the benchmark below
+are identical to those of a build without any method change.
 
 **Validation status: simulation only.** None of the accuracy figures here come from real sequencing data, and
 the simulation does not include a read mapper. Read the [validation](#validation) section before relying on
@@ -33,6 +33,7 @@ Contig trimming which tolerates basecall errors | on | `enableContigConservative
 Tandem duplications scored as duplications (germline) | on | `enableTandemDupModel = 0`
 Uncertain zygosity no longer filters a variant | on | `filterUncertainZygosity = 1`
 Depth ratio for deletions and duplications (`FORMAT/RDR`) | on | `reportDepthRatio = 0`
+Near-identical duplicate records merged | 5% mismatches | `maxDuplicateAltMismatchFraction = 0`
 Python 3, htslib/samtools 1.25, current CMake and compilers | | none
 Basecall qualities above 70 accepted | | none
 Reads which cannot be split-read aligned are skipped | | none
@@ -61,7 +62,16 @@ length differ by more than 3 bases), if at least two reads support it.
 Each allele is still scored against the reference on its own. There is no joint genotype, so a site with two
 different variant alleles gives two records and never a `1/2` genotype. Where neither haplotype has the
 reference allele, for instance two different insertions at one position, both records tend to be genotyped
-`1/1` with low GQ. Treat the genotypes of overlapping records at one locus as unreliable.
+`1/1`.
+
+Records in this situation are marked with the `OVERLAPPING_ALT` flag in INFO: another allele from a different
+contig of the same assembly overlaps this one. Treat the genotype of a flagged record as 'carries the
+variant, zygosity unknown'. In the benchmark, 75% to 83% of flagged records have the right zygosity, against
+91% to 93% of records with neither this flag nor a `MinGQ` sample filter.
+
+A second contig can also repeat a variant which a neighboring locus reports. Records at one position whose
+assembled alleles have the same length and differ at no more than 5% of bases are now merged into the best
+one. Previously only records with identical alleles were merged.
 
 ### Large insertions
 
@@ -130,6 +140,9 @@ mappability, so it is least reliable for small variants and in repeats.
   sequenced bases (such as a mostly hard-clipped supplementary alignment), ended the run with an exception in
   the split read aligner. These reads are now skipped.
 * `--callRegions` required a `.tbi` index. A `.csi` index is now accepted.
+* The `enableEvidenceSignalFilter` configuration option had no effect. Setting it to 0 now turns the filter
+  off. The default is unchanged in every mode, including RNA, where the v1.6.0 configuration file wrongly
+  said the filter was forced off.
 * The serialization headers of boost 1.74 and 1.75 fail to compile unless a definition is included first. The
   include is added. **Not tested**: only the bundled boost 1.58 was available.
 
@@ -144,6 +157,7 @@ enableContigConservativeRangeRefinement = 0
 enableTandemDupModel = 0
 filterUncertainZygosity = 1
 reportDepthRatio = 0
+maxDuplicateAltMismatchFraction = 0
 ```
 
 The same switches exist as `GenerateSVCandidates` options (`--help`).
@@ -154,14 +168,16 @@ What has been checked:
 
 * All unit tests pass, including tests added for each change.
 * The bundled demo (HCC1954 tumor/normal region) reproduces its expected results with the default settings.
-* With the six switches above, benchmark output is identical to a build of the unmodified methods.
+* With the seven switches above, benchmark output is identical to a build of the unmodified methods.
+* The branch builds from a fresh clone, and every commit which changes C++ code was built and unit tested
+  on its own.
 * A synthetic benchmark, in [scratch/simulation](../scratch/simulation). `runSimBenchmark.sh` reproduces it.
 
 The benchmark simulates a diploid sample at 30x over 3 Mb of GRCh38 chr21, with variants of 50 bases to 8 kb,
 chimeric pairs, reads with junk tails, and a set of 'artifact' junctions at 10% of sample depth which should
 not be called.
 
-Mixed variant set (214 alleles) | v1.6.0 methods | this fork
+Mixed variant set used during development (214 alleles) | v1.6.0 methods | this fork
 --- | --- | ---
 Recall | 0.776 | 0.967
 Precision | 0.971 | 0.976
@@ -169,15 +185,33 @@ Genotype concordance | 0.867 | 0.889
 Compound heterozygous sites, recall | 27/52 | 50/52
 Large insertions (500 to 3000 bases), recall | 4/10 | 9/10
 
+Held-out mixed variant set (216 alleles) | v1.6.0 methods | this fork
+--- | --- | ---
+Recall | 0.843 | 0.972
+Precision | 0.948 | 0.955
+Genotype concordance | 0.885 | 0.862
+Compound heterozygous sites, recall | 33/54 | 50/54
+Large insertions (500 to 3000 bases), recall | 6/8 | 8/8
+
+The held-out set uses a different region and random seed, and was first run after the method changes were
+finished. No method was changed in response to it. It did expose the duplicate record problem described
+above, which was fixed in the VCF merge step.
+
+Genotype concordance over all passing calls does not improve, and falls on the held-out set. The calls which
+are gained are mostly at compound heterozygous sites and at variants with uncertain zygosity, and those are
+the calls whose genotypes are least reliable. Both groups are marked (`OVERLAPPING_ALT`, `FT=MinGQ`). For
+records with neither mark, concordance goes from 0.88 to 0.91 on the held-out set and from 0.86 to 0.93 on
+the development set.
+
 Tandem duplications (246 alleles) | v1.6.0 methods | this fork
 --- | --- | ---
 Recall | 0.919 | 0.972
 Precision | 0.970 | 0.972
 Genotype concordance | 0.611 | 0.908
 
-Both versions report the same false positives. All of them are at simulated artifact junctions, apart from
-one 101 base duplication in the duplication set which is reported as an insertion of the same length and so
-is not matched by the evaluation.
+Both versions report the same false positives on all three sets. All of them are at simulated artifact
+junctions, apart from one 101 base duplication in the duplication set which is reported as an insertion of
+the same length and so is not matched by the evaluation.
 
 Why these figures are an upper bound and not an estimate:
 

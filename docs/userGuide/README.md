@@ -378,6 +378,7 @@ SOMATIC | Flag indicating a somatic variant
 SOMATICSCORE | Somatic variant quality score
 JUNCTION_SOMATICSCORE | If the SV junction is part of an EVENT (ie. a multi-adjacency variant), this field provides the SOMATICSCORE value for the adjacency in question only
 CONTIG | Assembled contig sequence, if the variant is not imprecise (with `--outputContig`)
+OVERLAPPING_ALT | Flag indicating that another variant allele which overlaps this one was assembled at the same locus and is reported as a separate record. The two records are genotyped independently against the reference allele, so their genotypes are less reliable. See [changes in this fork](../forkChanges.md)
 
 #### VCF FORMAT Fields
 
