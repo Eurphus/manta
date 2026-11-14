@@ -61,8 +61,12 @@ SVWriter::SVWriter(
   // First initialize the candidate VCF stream, which is always used
   //
 
+  // overlapping alleles from one locus are only reported when more than one contig per locus is used
+  const bool isOverlappingAltHeader(opt.refineOpt.maxSmallSVHaplotypeCount > 1);
+
   // Use 'noSampleNames' to force default sample names for the candidate header (why?)
   std::vector<std::string> noSampleNames;
+  candWriter.setOverlappingAltHeader(isOverlappingAltHeader);
   candWriter.writeHeader(progName, progVersion, noSampleNames);
 
   // Next initialize the model-specific VCF stream(s), each of which is only used for certain calling modes:
@@ -77,10 +81,12 @@ SVWriter::SVWriter(
         bamHeaderInfo,
         opt.tumorOutputFilename,
         opt.isOutputContig));
+    tumorWriter->setOverlappingAltHeader(isOverlappingAltHeader);
     tumorWriter->writeHeader(progName, progVersion, sampleNames);
   } else if (opt.isRNA) {
     rnaWriter.reset(
         new VcfWriterRnaSV(opt.referenceFilename, bamHeaderInfo, opt.rnaOutputFilename, opt.isOutputContig));
+    rnaWriter->setOverlappingAltHeader(isOverlappingAltHeader);
     rnaWriter->writeHeader(progName, progVersion, sampleNames);
   } else {
     std::vector<std::string> diploidSampleNames(
@@ -92,6 +98,7 @@ SVWriter::SVWriter(
         bamHeaderInfo,
         opt.diploidOutputFilename,
         opt.isOutputContig));
+    diploidWriter->setOverlappingAltHeader(isOverlappingAltHeader);
     diploidWriter->writeHeader(progName, progVersion, diploidSampleNames);
 
     if (opt.isSomatic()) {
@@ -102,6 +109,7 @@ SVWriter::SVWriter(
           bamHeaderInfo,
           opt.somaticOutputFilename,
           opt.isOutputContig));
+      somWriter->setOverlappingAltHeader(isOverlappingAltHeader);
       somWriter->writeHeader(progName, progVersion, sampleNames);
     }
   }

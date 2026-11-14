@@ -45,6 +45,13 @@ struct VcfWriterSV {
 
   virtual ~VcfWriterSV() {}
 
+  /// Declare the OVERLAPPING_ALT INFO flag in the header. Call before writeHeader() whenever more than one
+  /// allele can be reported per locus.
+  void setOverlappingAltHeader(const bool isOverlappingAltHeader)
+  {
+    _isOverlappingAltHeader = isOverlappingAltHeader;
+  }
+
   void writeHeader(
       const char* progName, const char* progVersion, const std::vector<std::string>& sampleNames) const;
 
@@ -143,6 +150,7 @@ private:
 protected:
   const std::string&               _referenceFilename;
   const bool&                      _isOutputContig;
+  bool                             _isOverlappingAltHeader = false;
   mutable SynchronizedOutputStream _stream;
 
 private:

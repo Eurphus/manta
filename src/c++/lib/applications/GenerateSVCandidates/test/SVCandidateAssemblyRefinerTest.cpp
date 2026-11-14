@@ -1836,5 +1836,52 @@ BOOST_AUTO_TEST_CASE(test_isSameSmallSVAllele)
   }
 }
 
+// Test that alleles from different contigs of one assembly are marked when their reference spans overlap
+BOOST_AUTO_TEST_CASE(test_markOverlappingAltAlleles)
+{
+  auto getDeletion = [](const pos_t beginPos, const pos_t endPos, const unsigned contigIndex) {
+    SVCandidate sv;
+    sv.bp1.interval       = GenomeInterval(0, beginPos, beginPos + 1);
+    sv.bp2.interval       = GenomeInterval(0, endPos, endPos + 1);
+    sv.assemblyAlignIndex = contigIndex;
+    return sv;
+  };
+
+  // two overlapping deletions on different contigs, and a third variant away from both
+  {
+    std::vector<SVCandidate> svs = {
+        getDeletion(1000, 1200, 0), getDeletion(1100, 1400, 1), getDeletion(2000, 2100, 1)};
+    markOverlappingAltAlleles(svs);
+    BOOST_REQUIRE(svs[0].isOverlappingAltAllele);
+    BOOST_REQUIRE(svs[1].isOverlappingAltAllele);
+    BOOST_REQUIRE(!svs[2].isOverlappingAltAllele);
+  }
+
+  // two insertions at the same position on different contigs
+  {
+    std::vector<SVCandidate> svs = {getDeletion(1000, 1001, 0), getDeletion(1000, 1001, 2)};
+    svs[0].insertSeq = std::string(80, 'A');
+    svs[1].insertSeq = std::string(120, 'C');
+    markOverlappingAltAlleles(svs);
+    BOOST_REQUIRE(svs[0].isOverlappingAltAllele);
+    BOOST_REQUIRE(svs[1].isOverlappingAltAllele);
+  }
+
+  // variants on the same contig are on one haplotype and never marked, nor are separate variants on
+  // different contigs
+  {
+    std::vector<SVCandidate> svs = {getDeletion(1000, 1200, 0), getDeletion(1100, 1400, 0)};
+    markOverlappingAltAlleles(svs);
+    BOOST_REQUIRE(!svs[0].isOverlappingAltAllele);
+    BOOST_REQUIRE(!svs[1].isOverlappingAltAllele);
+  }
+  {
+    std::vector<SVCandidate> svs = {getDeletion(1000, 1200, 0), getDeletion(1300, 1400, 1)};
+    markOverlappingAltAlleles(svs);
+    BOOST_REQUIRE(!svs[0].isOverlappingAltAllele);
+    BOOST_REQUIRE(!svs[1].isOverlappingAltAllele);
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE_END()

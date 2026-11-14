@@ -2038,6 +2038,34 @@ static bool isSameSmallSVAllele(const SVCandidate& sv1, const SVCandidate& sv2, 
   return (insertSizeDiff <= tolerance);
 }
 
+/// \return true if the reference spans of two candidates from the same local assembly overlap
+static bool isOverlappingSmallSVAllele(const SVCandidate& sv1, const SVCandidate& sv2)
+{
+  auto getSpan = [](const SVCandidate& sv) {
+    const known_pos_range2& range1(sv.bp1.interval.range);
+    const known_pos_range2& range2(sv.bp2.interval.range);
+    return known_pos_range2(
+        std::min(range1.begin_pos(), range2.begin_pos()), std::max(range1.end_pos(), range2.end_pos()));
+  };
+  const known_pos_range2 span1(getSpan(sv1));
+  const known_pos_range2 span2(getSpan(sv2));
+  return ((span1.begin_pos() < span2.end_pos()) && (span2.begin_pos() < span1.end_pos()));
+}
+
+/// Mark every candidate which overlaps a candidate found from a different contig of the same assembly
+static void markOverlappingAltAlleles(std::vector<SVCandidate>& svs)
+{
+  const unsigned svCount(svs.size());
+  for (unsigned i(0); i < svCount; ++i) {
+    for (unsigned j(i + 1); j < svCount; ++j) {
+      if (svs[i].assemblyAlignIndex == svs[j].assemblyAlignIndex) continue;
+      if (!isOverlappingSmallSVAllele(svs[i], svs[j])) continue;
+      svs[i].isOverlappingAltAllele = true;
+      svs[j].isOverlappingAltAllele = true;
+    }
+  }
+}
+
 /// Stores information associated with each contig to assist with contig rank and selection
 struct ContigScoringInfo {
   bool     isDefined   = false;
@@ -2526,6 +2554,7 @@ void SVCandidateAssemblyRefiner::getSmallSVAssembly(
         addContigCandidates(contigInfo.index, true);
         if (assemblyData.svs.size() > svCountBefore) haplotypeCount++;
       }
+      if (haplotypeCount > 1) markOverlappingAltAlleles(assemblyData.svs);
     }
   }
 

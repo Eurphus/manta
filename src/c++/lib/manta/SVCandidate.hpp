@@ -170,6 +170,12 @@ public:
   /// If true, the insertion hasn't been assembled all the way through
   bool isUnknownSizeInsertion = false;
 
+  /// If true, another variant allele was assembled at the same locus from a different contig, and the
+  /// reference spans of the two alleles overlap. Each allele is scored against the reference allele on its
+  /// own, so reads from the other variant allele are missing from the evidence of both, and the genotype of
+  /// each is less reliable than that of a variant on its own.
+  bool isOverlappingAltAllele = false;
+
   /// For an incomplete insertion, this is the known left side of the insert sequence
   std::string unknownSizeInsertionLeftSeq;
 

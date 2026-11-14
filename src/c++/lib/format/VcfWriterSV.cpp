@@ -94,6 +94,10 @@ void VcfWriterSV::writeHeaderPrefix(const char* progName, const char* progVersio
   os << "##INFO=<ID=LEFT_SVINSSEQ,Number=.,Type=String,Description=\"Known left side of insertion for an insertion of unknown length\">\n";
   os << "##INFO=<ID=RIGHT_SVINSSEQ,Number=.,Type=String,Description=\"Known right side of insertion for an insertion of unknown length\">\n";
 
+  if (_isOverlappingAltHeader) {
+    os << "##INFO=<ID=OVERLAPPING_ALT,Number=0,Type=Flag,Description=\"Another variant allele which overlaps this one was assembled at the same locus and is reported as a separate record. Each of these records is genotyped against the reference allele only, without regard to the other, so their genotypes are less reliable\">\n";
+  }
+
   // if "--outputContig" is specified, then print out INFO tag for Assembled contig sequence
   if (_isOutputContig) {
     os << "##INFO=<ID=CONTIG,Number=1,Type=String,Description=\"Assembled contig sequence\">\n";
@@ -565,6 +569,10 @@ void VcfWriterSV::writeIndel(
       // add the 1M to signify the leading reference base:
       infoTags.push_back(str(boost::format("CIGAR=1M%s") % cigar));
     }
+  }
+
+  if (sv.isOverlappingAltAllele) {
+    infoTags.push_back("OVERLAPPING_ALT");
   }
 
   if (isImprecise) {
