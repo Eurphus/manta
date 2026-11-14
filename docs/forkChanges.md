@@ -167,7 +167,8 @@ The same switches exist as `GenerateSVCandidates` options (`--help`).
 What has been checked:
 
 * All unit tests pass, including tests added for each change.
-* The bundled demo (HCC1954 tumor/normal region) reproduces its expected results with the default settings.
+* The bundled demo (HCC1954 tumor/normal region) reproduces its expected somatic calls with the default
+  settings. The expected result file is unchanged apart from one added header line (`OVERLAPPING_ALT`).
 * With the seven switches above, benchmark output is identical to a build of the unmodified methods.
 * The branch builds from a fresh clone, and every commit which changes C++ code was built and unit tested
   on its own.
