@@ -1,6 +1,18 @@
 Manta Structural Variant Caller
 ===============================
 
+**This is a modified version of Manta.** It is based on the last revision of
+[Illumina/manta](https://github.com/Illumina/manta) published under the GPLv3
+(commit 75b5c38, July 2019, three commits after release v1.6.0), with changes
+made in November 2026. It is not an Illumina release and is not supported by
+Illumina. The changes, their defaults, how to turn each of them off and what
+has and has not been validated are described in
+[docs/forkChanges.md](docs/forkChanges.md). The accuracy of the changed
+methods has been measured on simulated data only.
+
+The remainder of this file describes Manta as released by Illumina, updated
+where this version differs.
+
 Manta calls structural variants (SVs) and indels from mapped
 paired-end sequencing reads. It is optimized for analysis of germline
 variation in small sets of individuals and somatic variation in
@@ -47,13 +59,13 @@ for additional details.
 Getting Started
 ---------------
 
-For linux users, it is recommended to start from the most recent
-[binary distribution on the Manta releases page][releases], this
-distribution can be unpacked, moved to any convenient directory and
-tested by [running a small demo](docs/userGuide/installation.md#demo)
-included with the release distribution. Manta can also be installed
-and run on OS X. Please see the [installation instructions](docs/userGuide/installation.md)
-for full build and installation details of all supported cases.
+This version must be built from source, please see the
+[installation instructions](docs/userGuide/installation.md) for full
+build and installation details. After installation the build can be
+tested by [running a small demo](docs/userGuide/installation.md#demo).
+The binary distributions on the [Illumina Manta releases page][releases]
+are builds of the unmodified v1.6.0 and earlier releases, they do not
+contain any of the changes made here.
 
 [releases]:https://github.com/Illumina/manta/releases
 

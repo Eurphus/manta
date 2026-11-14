@@ -389,6 +389,7 @@ GQ | Genotype Quality
 PL | Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification
 PR | Number of spanning read pairs which strongly (Q30) support the REF or ALT alleles
 SR | Number of split-reads which strongly (Q30) support the REF or ALT alleles
+RDR | Mean read depth within the variant divided by the mean read depth of the regions flanking it. Reported in the diploid VCF for deletions and tandem duplications of at least 500 bases. Not used in any score or filter, see [depth ratio](#depth-ratio)
 
 #### VCF FILTER Fields
 
@@ -401,12 +402,20 @@ Ploidy | Record | For DEL & DUP variants, the genotypes of overlapping variants 
 MaxDepth | Record | Depth is greater than 3x the median chromosome depth near one or both variant breakends
 MaxMQ0Frac | Record | For a small variant (<1000 bases), the fraction of reads in all samples with MAPQ0 around either breakend exceeds 0.4
 NoPairSupport | Record | For variants significantly larger than the paired read fragment size, no paired reads support the alternate allele in any sample
-SampleFT | Record | No sample passes all the sample-level filters
+SampleFT | Record | No sample passes all the sample-level filters. A sample which fails only MinGQ still counts as passing here if its genotype is non-reference and the phred-scaled probability of the reference genotype is at least 15
 HomRef | Sample | Homozygous reference call
 
 #### Interpretation of VCF filters
 
 As described above, there are two levels of filters: record level (FILTER) and sample level (FORMAT/FT). Record-level filters are generally independant to sample-level filters. However, if none of the samples passes all sample-level filters, the 'SampleFT' filter will be applied at the record level.
+
+There is one exception to this rule. A low genotype quality can mean that it is uncertain whether the sample is heterozygous or homozygous for a variant which it certainly carries. Such a sample is marked 'MinGQ' in FORMAT/FT, but it does not cause the 'SampleFT' filter to be applied, so a record can pass while FORMAT/FT is 'MinGQ' for every sample. Test FORMAT/FT in addition to FILTER when a confident genotype is required. This is a change from Manta v1.6.0, which can be reversed with the `filterUncertainZygosity` configuration option. See [changes in this fork](../forkChanges.md).
+
+#### Depth ratio
+
+For deletions and tandem duplications of at least 500 bases, FORMAT/RDR in the diploid VCF gives the mean read depth between the breakends of the variant, divided by the mean read depth of the 1000 bases on each side of it. The expected value is close to 0.5 for a heterozygous deletion, 0 for a homozygous deletion, 1.5 for a heterozygous duplication and 2 for a homozygous duplication. A value close to 1 means that the read depth does not show the copy number change which the variant call implies.
+
+The depth ratio has no influence on QUAL, the genotype or any filter. It is provided as independent evidence which can be used to prioritize or filter calls downstream. The ratio is not corrected for GC content or mappability, and it is less reliable for small variants and for variants in repetitive sequence. For variants larger than 20 kb the depth is sampled from 20 evenly spaced windows of 1 kb.
 
 #### Interpretation of Manta's INFO/EVENT field
 
